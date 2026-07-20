@@ -33,8 +33,8 @@ import com.example.pat.event.DeviceEventLogEntry
 import com.example.pat.event.toDisplayLabel
 import com.example.pat.sensor.AccelData
 import com.example.pat.ui.theme.PatTheme
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
 
 /**
  * 传感器调试界面。
@@ -50,7 +50,7 @@ import kotlinx.coroutines.flow.SharedFlow
 @Composable
 fun SensorDebugScreen(
     isSensorRunning: Boolean,
-    sensorDataFlow: SharedFlow<AccelData>,
+    sensorDataFlow: Flow<AccelData>,
     latestData: AccelData,
     lastEvent: DeviceEvent?,
     eventLog: List<DeviceEventLogEntry>,

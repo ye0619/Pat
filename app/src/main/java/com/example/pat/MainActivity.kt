@@ -27,6 +27,9 @@ import com.example.pat.util.PermissionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
@@ -71,12 +74,20 @@ class MainActivity : ComponentActivity() {
     private val eventLog = mutableStateListOf<DeviceEventLogEntry>()
     private val maxEventLogSize = 50
 
+    /** UI 使用的传感器数据流（已降频，避免 GPU 过载） */
+    private lateinit var uiSensorDataFlow: Flow<AccelData>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         // 初始化传感器管理器
         sensorManager = MotionSensorManager(this)
+
+        // 降频传感器数据流用于 UI 显示（10fps，避免 GPU BufferQueue 过载）
+        @OptIn(FlowPreview::class)
+        val sampled = sensorManager.sensorData.sample(100)
+        uiSensorDataFlow = sampled
 
         // 初始化系统状态监控（复合型：内部包含 Battery + Screen 监控器）
         deviceStateMonitor = DeviceStateMonitor(applicationContext, activityScope)
@@ -91,7 +102,7 @@ class MainActivity : ComponentActivity() {
             PatTheme {
                 SensorDebugScreen(
                     isSensorRunning = sensorManager.isRunning,
-                    sensorDataFlow = sensorManager.sensorData,
+                    sensorDataFlow = uiSensorDataFlow,
                     latestData = sensorManager.latestData,
                     lastEvent = lastEvent.value,
                     eventLog = eventLog.toList(),
