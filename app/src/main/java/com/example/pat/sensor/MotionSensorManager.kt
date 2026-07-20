@@ -6,86 +6,191 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.util.Log
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * 传感器生命周期管理器。
  *
  * 职责：
  * - 封装 Android [SensorManager] 的注册/注销生命周期
- * - 通过 [callbackFlow] 将传感器回调转换为响应式 [Flow]
- * - 提供加速度计数据流供 detector 层订阅
+ * - 通过 [startListening] / [stopListening] 显式控制传感器启停
+ * - 通过 [sensorData] SharedFlow 提供响应式数据流
+ * - 通过 [SensorCallback] 提供基于监听的接入方式
  *
  * 输入：Context（用于获取 SensorManager 系统服务）
- * 输出：[Flow]<[AccelData]> 加速度计数据流
- *
- * 扩展方向：
- * - 添加陀螺仪数据流 [gyroFlow]
- * - 动态采样率切换（高帧率检测 / 低帧率待机）
- * - 多传感器融合（Sensor Fusion）
+ * 输出：[SharedFlow]<[AccelData]> 加速度计数据流 + [SensorCallback] 回调
  *
  * 生命周期安全：
- * - Flow 在收集端取消时自动注销 SensorEventListener
- * - 建议配合 [androidx.lifecycle.repeatOnLifecycle] 使用
+ * - [startListening] 防止重复注册
+ * - [stopListening] 安全注销，防止内存泄漏
+ * - [release] 完整清理，应在 Activity/Fragment onDestroy 中调用
+ * - Flow 和 Callback 双通道互不干扰
+ *
+ * 参考文档：5.2 传感器监控设计
  */
 class MotionSensorManager(context: Context) {
 
     private val sensorManager: SensorManager =
         context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
-    /** 加速度计数据流。停止收集时自动注销监听器。 */
-    val accelerometerFlow: Flow<AccelData> = callbackFlow {
+    /** 当前最新的传感器数据，非协程消费者可直接读取此属性。 */
+    @Volatile
+    var latestData: AccelData = AccelData(0f, 0f, 0f, 0L)
+        private set
+
+    private var _isListening = false
+
+    /** 传感器当前是否在监听中。 */
+    val isRunning: Boolean get() = _isListening
+
+    private val callbacks = mutableListOf<SensorCallback>()
+
+    private val _sensorData = MutableSharedFlow<AccelData>(
+        replay = 0,
+        extraBufferCapacity = 64 // 传感器高频数据，buffer 需足够
+    )
+
+    /**
+     * 加速度计数据流。
+     *
+     * 适用于协程消费者，通过 [SharedFlow] 提供无粘性实时数据。
+     * 不与 [startListening]/[stopListening] 绑定，
+     * 即使没有收集者，传感器数据依然会 emit（当监听已启动时）。
+     */
+    val sensorData: SharedFlow<AccelData> = _sensorData.asSharedFlow()
+
+    /**
+     * 传感器监听器实例。
+     * 持有引用以确保 [unregisterListener] 能正确匹配。
+     */
+    private val sensorEventListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val data = AccelData(
+                x = event.values[0],
+                y = event.values[1],
+                z = event.values[2],
+                timestamp = event.timestamp
+            )
+
+            // 更新最新值缓存（非协程消费者可直接读取）
+            latestData = data
+
+            // 发送到 Flow 通道
+            _sensorData.tryEmit(data)
+
+            // 通知回调消费者
+            synchronized(callbacks) {
+                callbacks.forEach { it.onSensorChanged(data) }
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
+            synchronized(callbacks) {
+                callbacks.forEach { it.onAccuracyChanged(sensor.type, accuracy) }
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 生命周期控制
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * 开始监听加速度计。
+     *
+     * 安全约束：
+     * - 防重复注册：如果已在监听中，直接返回
+     * - 设备兼容：如果设备无加速度计，记录错误并返回
+     * - 与 [stopListening] 配对使用
+     */
+    fun startListening() {
+        if (_isListening) {
+            Log.w(TAG, "startListening() ignored — already listening")
+            return
+        }
+
         val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         if (sensor == null) {
-            Log.w(TAG, "Accelerometer not available on this device")
-            close() // 无传感器时直接关闭 Flow
-            return@callbackFlow
+            Log.e(TAG, "Cannot start: Accelerometer not available on this device")
+            return
         }
 
-        val listener = object : SensorEventListener {
-            override fun onSensorChanged(event: SensorEvent) {
-                val (x, y, z) = event.values
-                val data = AccelData(x, y, z, event.timestamp)
-                trySend(data)
-
-                // TODO: 阶段1验证后移除或降级详细 Log
-                Log.v(TAG, "Accel: x=%.2f y=%.2f z=%.2f mag=%.2f"
-                    .format(x, y, z, data.magnitude))
-            }
-
-            override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
-                // 精度变化时记录日志，便于排查设备差异
-                Log.d(TAG, "Accuracy changed: sensor=${sensor.type} accuracy=$accuracy")
-            }
-        }
-
-        // 使用 GAME 精度 (~20ms) 确保检测流畅
         sensorManager.registerListener(
-            listener,
+            sensorEventListener,
             sensor,
-            SensorManager.SENSOR_DELAY_GAME
+            SensorManager.SENSOR_DELAY_GAME // ~20ms，确保检测流畅
         )
 
+        _isListening = true
         Log.i(TAG, "Accelerometer listener registered (SENSOR_DELAY_GAME)")
+    }
 
-        awaitClose {
-            sensorManager.unregisterListener(listener)
-            Log.i(TAG, "Accelerometer listener unregistered")
+    /**
+     * 停止监听加速度计。
+     *
+     * 安全约束：
+     * - 防重复注销：如果未在监听中，直接返回
+     * - 自动注销所有已注册的传感器监听器
+     */
+    fun stopListening() {
+        if (!_isListening) {
+            Log.w(TAG, "stopListening() ignored — not listening")
+            return
         }
-    }.flowOn(Dispatchers.Default) // 传感器数据在 Default 调度器处理，避免阻塞主线程
+
+        sensorManager.unregisterListener(sensorEventListener)
+        _isListening = false
+        Log.i(TAG, "Accelerometer listener unregistered")
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 回调管理
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * 注册传感器数据回调。
+     * 回调在传感器事件线程中调用，不应执行耗时操作。
+     * 防重复注册：同实例不会重复添加。
+     */
+    fun registerCallback(callback: SensorCallback) {
+        synchronized(callbacks) {
+            if (!callbacks.contains(callback)) {
+                callbacks.add(callback)
+            }
+        }
+    }
+
+    /**
+     * 注销传感器数据回调。
+     */
+    fun unregisterCallback(callback: SensorCallback) {
+        synchronized(callbacks) {
+            callbacks.remove(callback)
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 资源释放
+    // ══════════════════════════════════════════════════════════════
 
     /**
      * 释放所有传感器资源。
-     * 当 Flow 收集被取消时自动触发，此方法作为兜底释放入口。
+     *
+     * 执行以下操作：
+     * 1. 停止传感器监听（如果正在运行）
+     * 2. 清空所有回调引用（防止泄漏）
+     *
+     * 应在 [android.app.Activity.onDestroy] 中调用。
+     * 调用后此实例不再可用，需重新创建。
      */
     fun release() {
-        // 注销所有监听器：传入(null as SensorEventListener) 解决重载歧义
-        sensorManager.unregisterListener(null as SensorEventListener?)
-        Log.i(TAG, "All sensor listeners released")
+        stopListening()
+        synchronized(callbacks) {
+            callbacks.clear()
+        }
+        Log.i(TAG, "MotionSensorManager released")
     }
 
     companion object {

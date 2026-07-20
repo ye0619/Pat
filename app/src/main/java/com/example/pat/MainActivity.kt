@@ -6,48 +6,70 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.lifecycleScope
-import com.example.pat.behavior.BehaviorController
 import com.example.pat.detector.DropDetector
 import com.example.pat.detector.DropResult
 import com.example.pat.detector.ImpactDetector
 import com.example.pat.detector.ImpactResult
 import com.example.pat.detector.ShakeDetector
+import com.example.pat.event.DeviceEvent
+import com.example.pat.event.DeviceEventLogEntry
 import com.example.pat.event.EventBus
-import com.example.pat.event.MotionEvent
+import com.example.pat.monitor.DeviceStateMonitor
+import com.example.pat.sensor.AccelData
 import com.example.pat.sensor.MotionSensorManager
-import com.example.pat.ui.PetScreen
+import com.example.pat.sensor.SensorCallback
+import com.example.pat.ui.SensorDebugScreen
 import com.example.pat.ui.theme.PatTheme
+import com.example.pat.util.PermissionManager
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
  * 主 Activity。
  *
  * 职责：
- * - 初始化传感器管理、检测器、行为控制器
- * - 建立数据管道：sensor → detector → event → behavior → UI
- * - 生命周期感知的传感器采集管理
+ * - 管理 MotionSensorManager + DeviceStateMonitor 生命周期
+ * - 连接传感器 detector → DeviceEvent 映射
+ * - 收集所有 DeviceEvent 更新 UI 事件日志
+ * - 处理运行时权限
  *
- * 架构约束：
- * - Activity 仅负责组装模块，不实现检测或业务逻辑
- * - 传感器数据不直接流入 UI，严格遵循分层方向
+ * 生命周期设计：
+ * ```
+ * onStart  → startListening() + DeviceStateMonitor.start()
+ * onStop   → DeviceStateMonitor.stop() + stopListening()
+ * onDestroy→ release() + scope.cancel()
+ * ```
  *
- * 参考文档：
- * - 3.3 数据流图设计
- * - 9.2 生命周期管理
+ * 数据流：
+ * ```
+ * Sensor → detectors → callback → DeviceEvent → EventBus + UI
+ * DeviceStateMonitor.events → EventBus + UI
+ * ```
+ *
+ * 参考文档：3.2 分层架构
  */
 class MainActivity : ComponentActivity() {
 
-    // 核心模块实例
+    // ── 传感器 ──
     private lateinit var sensorManager: MotionSensorManager
     private val impactDetector = ImpactDetector()
     private val shakeDetector = ShakeDetector()
     private val dropDetector = DropDetector()
-    private val behaviorController = BehaviorController()
+
+    // ── 系统状态监控（复合：Battery + Screen + DeviceState 的整合入口） ──
+    private lateinit var deviceStateMonitor: DeviceStateMonitor
+    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // ── UI 状态 ──
+    private val lastEvent = mutableStateOf<DeviceEvent?>(null)
+    private val eventLog = mutableStateListOf<DeviceEventLogEntry>()
+    private val maxEventLogSize = 50
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,86 +78,157 @@ class MainActivity : ComponentActivity() {
         // 初始化传感器管理器
         sensorManager = MotionSensorManager(this)
 
-        // 启动传感器采集管道
+        // 初始化系统状态监控（复合型：内部包含 Battery + Screen 监控器）
+        deviceStateMonitor = DeviceStateMonitor(applicationContext, activityScope)
+
+        // 请求运行时权限
+        requestNotificationPermission()
+
+        // 建立传感器检测管道
         startSensorPipeline()
 
         setContent {
             PatTheme {
-                PetScreen(
-                    behaviorController = behaviorController,
+                SensorDebugScreen(
+                    isSensorRunning = sensorManager.isRunning,
+                    sensorDataFlow = sensorManager.sensorData,
+                    latestData = sensorManager.latestData,
+                    lastEvent = lastEvent.value,
+                    eventLog = eventLog.toList(),
+                    onStartClick = { sensorManager.startListening() },
+                    onStopClick = { sensorManager.stopListening() },
                     modifier = Modifier.fillMaxSize()
                 )
             }
         }
+
+        Log.i(TAG, "MainActivity created")
     }
+
+    override fun onStart() {
+        super.onStart()
+        // 可见：启动传感器 + 系统监控
+        sensorManager.startListening()
+        deviceStateMonitor.start()
+        startEventCollection()
+        Log.i(TAG, "onStart: all monitors started")
+    }
+
+    override fun onStop() {
+        // 不可见：停止系统监控 + 传感器（省电）
+        deviceStateMonitor.stop()
+        sensorManager.stopListening()
+        Log.i(TAG, "onStop: all monitors stopped")
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        activityScope.cancel()
+        if (::sensorManager.isInitialized) {
+            sensorManager.release()
+        }
+        Log.i(TAG, "onDestroy: resources released")
+        super.onDestroy()
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 传感器 → 事件 管道
+    // ══════════════════════════════════════════════════════════════
 
     /**
-     * 建立数据管道：
-     *
-     * Accelerometer Flow
-     *   → ImpactDetector / ShakeDetector / DropDetector
-     *   → EventBus (MotionEvent)
-     *   → BehaviorController.handleEvent()
-     *   → StateFlow<BehaviorSnapshot> → UI
-     *
-     * 使用 lifecycleScope 确保：
-     * - Activity 可见时自动收集
-     * - Activity 不可见时自动取消，停止传感器采集
-     * - 无需手动管理 register/unregister
+     * 注册 SensorCallback，将传感器数据依次通过各 detector
+     * 并将检测到的事件发射到 EventBus 和 UI。
      */
     private fun startSensorPipeline() {
-        lifecycleScope.launch {
-            sensorManager.accelerometerFlow
-                .flowOn(Dispatchers.Default)
-                .catch { e ->
-                    Log.e(TAG, "Sensor pipeline error", e)
-                }
-                .collect { data ->
-                    processImpact(data)
-                    processShake(data)
-                    processDrop(data)
-                }
-        }
+        sensorManager.registerCallback(object : SensorCallback {
+            override fun onSensorChanged(data: AccelData) {
+                processImpact(data)
+                processShake(data)
+                processDrop(data)
+            }
 
-        // 收集 EventBus 事件并交由 BehaviorController 处理
-        lifecycleScope.launch {
-            EventBus.events
-                .collect { event ->
-                    behaviorController.handleEvent(event)
-                }
-        }
+            override fun onAccuracyChanged(sensorType: Int, accuracy: Int) {
+                Log.d(TAG, "Accuracy: type=$sensorType accuracy=$accuracy")
+            }
+        })
     }
 
-    private fun processImpact(data: com.example.pat.sensor.AccelData) {
+    private fun processImpact(data: AccelData) {
         when (val result = impactDetector.process(data)) {
             is ImpactResult.Detected -> {
-                val normalized = ((result.intensity - 25f) / 50f).coerceIn(0f, 1f)
-                EventBus.tryEmit(MotionEvent.Impact(normalized))
+                val event = DeviceEvent.Impact(result.intensity)
+                emitEvent(event)
+                Log.d(TAG, "Event: Impact (${"%.2f".format(result.intensity)})")
             }
             is ImpactResult.None -> { /* 无事件 */ }
         }
     }
 
-    private fun processShake(data: com.example.pat.sensor.AccelData) {
+    private fun processShake(data: AccelData) {
         if (shakeDetector.process(data)) {
-            EventBus.tryEmit(MotionEvent.Shake)
+            emitEvent(DeviceEvent.Shake)
+            Log.d(TAG, "Event: Shake")
         }
     }
 
-    private fun processDrop(data: com.example.pat.sensor.AccelData) {
+    private fun processDrop(data: AccelData) {
         when (val result = dropDetector.process(data)) {
             is DropResult.Detected -> {
-                EventBus.tryEmit(MotionEvent.Drop(result.impactForce))
+                val event = DeviceEvent.Drop(result.impactForce)
+                emitEvent(event)
+                Log.d(TAG, "Event: Drop (${"%.1f".format(result.impactForce)})")
             }
             is DropResult.None -> { /* 无事件 */ }
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // 兜底释放（正常情况下 Flow 取消时会自动注销）
-        if (::sensorManager.isInitialized) {
-            sensorManager.release()
+    // ══════════════════════════════════════════════════════════════
+    // 事件收集与 UI 更新
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * 收集 [DeviceStateMonitor.events]（电池/屏幕/衍生事件），
+     * 转发到 EventBus 并更新 UI。
+     */
+    private fun startEventCollection() {
+        activityScope.launch {
+            deviceStateMonitor.events.collect { event ->
+                EventBus.tryEmit(event)
+                addToLog(event)
+            }
+        }
+    }
+
+    /**
+     * 发射一个事件：更新状态值、记录日志、转发到 EventBus。
+     */
+    private fun emitEvent(event: DeviceEvent) {
+        lastEvent.value = event
+        addToLog(event)
+        EventBus.tryEmit(event)
+    }
+
+    /**
+     * 将事件追加到日志列表（最新在前），超过上限则截断。
+     */
+    private fun addToLog(event: DeviceEvent) {
+        eventLog.add(0, DeviceEventLogEntry(
+            timestamp = System.currentTimeMillis(),
+            event = event
+        ))
+        if (eventLog.size > maxEventLogSize) {
+            eventLog.removeRange(maxEventLogSize, eventLog.size)
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 权限
+    // ══════════════════════════════════════════════════════════════
+
+    private fun requestNotificationPermission() {
+        if (!PermissionManager.hasNotificationPermission(this)) {
+            PermissionManager.requestNotificationPermission(this)
+            Log.i(TAG, "Notification permission requested")
         }
     }
 

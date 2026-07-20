@@ -2,6 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- 加速度计/陀螺仪：Android 系统传感器，无需运行时权限 -->
+    <!-- VIBRATE：Normal 权限，安装时自动授予，API 1+ -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- POST_NOTIFICATIONS：运行时权限（Android 13+ / API 33+），需动态请求 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
