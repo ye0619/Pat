@@ -7,10 +7,12 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- POST_NOTIFICATIONS：运行时权限（Android 13+ / API 33+），需动态请求 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- FOREGROUND_SERVICE：API 29+ 前台服务必需（API 29 以下自动授予） -->
+    <!-- FOREGROUND_SERVICE：API 29+ 前台服务必需 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- FOREGROUND_SERVICE_SPECIAL_USE：API 34+ 使用 specialUse 类型时必需 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- RECEIVE_BOOT_COMPLETED：开机自启动 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="true"
@@ -29,20 +31,28 @@
             android:theme="@style/Theme.Pat">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- 前台服务：承载 ScreenMonitor 和 BatteryMonitor，确保屏幕事件不依赖 Activity 生命周期 -->
+        <!-- MotionPet 前台服务：承载所有监测器和事件引擎 -->
         <service
-            android:name=".service.MonitorForegroundService"
+            android:name=".service.CompanionForegroundService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="device_state_monitoring_for_context_aware_companion" />
         </service>
+
+        <!-- 开机自启动接收器 -->
+        <receiver
+            android:name=".service.CompanionBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

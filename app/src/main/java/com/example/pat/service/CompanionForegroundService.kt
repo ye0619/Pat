@@ -10,16 +10,22 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import com.example.pat.CompanionForegroundServiceHolder
 import com.example.pat.MainActivity
+import com.example.pat.config.PreferenceManager
 import com.example.pat.detector.DropDetector
 import com.example.pat.detector.DropResult
 import com.example.pat.detector.ImpactDetector
 import com.example.pat.detector.ImpactResult
 import com.example.pat.detector.ShakeDetector
+import com.example.pat.engine.EventDispatcher
+import com.example.pat.engine.RuleEngine
 import com.example.pat.event.DeviceEvent
 import com.example.pat.event.EventBus
+import com.example.pat.event.EventType
 import com.example.pat.event.SensorDataBus
 import com.example.pat.monitor.DeviceStateMonitor
+import com.example.pat.response.ResponseManager
 import com.example.pat.sensor.AccelData
 import com.example.pat.sensor.MotionSensorManager
 import com.example.pat.sensor.SensorCallback
@@ -28,37 +34,37 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * 前台服务 —— 系统的唯一事件入口。
+ * MotionPet 前台服务 —— 事件监测与反馈的总入口。
  *
- * 托管所有数据源，Activity 仅负责 UI 展示：
+ * 架构：
  * ```
- * MonitorForegroundService（唯一事件入口）
+ * CompanionForegroundService
  *   │
- *   ├── DeviceStateMonitor
- *   │     ├── ScreenMonitor  → 屏幕亮灭 → EventBus
- *   │     └── BatteryMonitor → 电池状态 → EventBus
+ *   ├── DeviceStateMonitor（Screen + Battery）
+ *   │     └── EventBus
  *   │
- *   └── Sensor Pipeline
- *         ├── MotionSensorManager → 加速度计 → SensorDataBus
- *         ├── ImpactDetector      → 拍击    → EventBus
- *         ├── ShakeDetector       → 摇晃    → EventBus
- *         └── DropDetector        → 跌落    → EventBus
- *
- *                ↓
- *   EventBus ←── 所有 DeviceEvent ──→ Activity (UI)
- *   SensorDataBus ←── AccelData ────→ Activity (UI)
+ *   ├── Sensor Pipeline（加速度计 → Detectors）
+ *   │     └── EventBus
+ *   │
+ *   ├── EventDispatcher（从 EventBus 收集）
+ *   │     └── RuleEngine（匹配配置）
+ *   │           └── ResponseManager（执行反馈）
+ *   │                 ├── NotificationService
+ *   │                 └── VoiceService
+ *   │
+ *   └── 前台通知（常驻）
  * ```
  *
- * 生命周期：
- * - onCreate: 初始化所有监控器和检测器
- * - onStartCommand: 启动前台通知 + 启动所有监控
- * - onDestroy: 停止所有监控 + 释放资源
- * - START_STICKY: 被杀后自动重建
+ * Activity 仅负责 UI 配置，不依赖 Activity 生命周期。
+ *
+ * 参考文档：原始规范 6. 后台架构
  */
-class MonitorForegroundService : Service() {
+class CompanionForegroundService : Service() {
 
     // ── 设备状态监控 ──
     private lateinit var deviceStateMonitor: DeviceStateMonitor
@@ -69,8 +75,16 @@ class MonitorForegroundService : Service() {
     private val shakeDetector = ShakeDetector()
     private val dropDetector = DropDetector()
 
+    // ── 配置与引擎 ──
+    private lateinit var preferenceManager: PreferenceManager
+    private lateinit var ruleEngine: RuleEngine
+    private lateinit var responseManager: ResponseManager
+    lateinit var eventDispatcher: EventDispatcher
+        private set
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var deviceEventForwardJob: Job? = null
+    private var longUsageCheckJob: Job? = null
 
     // ══════════════════════════════════════════════════════════════
     // 生命周期
@@ -78,29 +92,41 @@ class MonitorForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.w(TAG, "╔══ Service onCreate — initializing all monitors ══╗")
-        Log.i(TAG, "Service instance: ${this.javaClass.simpleName}@${System.identityHashCode(this)}")
+        Log.i(TAG, "╔══ MotionPet Service onCreate ══╗")
 
         createNotificationChannel()
 
-        // 初始化设备状态监控器（ScreenMonitor + BatteryMonitor）
+        // 初始化配置
+        preferenceManager = PreferenceManager(this)
+
+        // 初始化设备状态监控器
         deviceStateMonitor = DeviceStateMonitor(this, serviceScope)
-        Log.i(TAG, "DeviceStateMonitor initialized (Screen + Battery)")
 
         // 初始化传感器管理器
         sensorManager = MotionSensorManager(this)
-        Log.i(TAG, "MotionSensorManager initialized")
 
-        // 注册传感器检测管道（后台线程 → detectors → EventBus）
+        // 初始化响应系统
+        responseManager = ResponseManager(this)
+
+        // 初始化规则引擎
+        ruleEngine = RuleEngine(preferenceManager)
+
+        // 初始化事件分发器
+        eventDispatcher = EventDispatcher(ruleEngine, responseManager, serviceScope)
+
+        // 注册传感器检测管道
         registerSensorPipeline()
-        Log.i(TAG, "Sensor pipeline registered (Impact + Shake + Drop detectors)")
+
+        // 注册到全局 Holder（供 Activity 获取状态）
+        CompanionForegroundServiceHolder.instance = this
+
+        Log.i(TAG, "All components initialized")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "Service onStartCommand (flags=$flags, startId=$startId, " +
-                "action=${intent?.action ?: "(none)"})")
+        Log.i(TAG, "onStartCommand (action=${intent?.action ?: "(none)"})")
 
-        // 处理手动启停传感器命令（来自 UI 按钮）
+        // 处理手动启停传感器命令
         when (intent?.action) {
             ACTION_START_SENSOR -> {
                 startSensors()
@@ -117,14 +143,13 @@ class MonitorForegroundService : Service() {
         // 前台通知
         try {
             startForeground(NOTIFICATION_ID, buildNotification())
-            Log.i(TAG, "Foreground notification shown (id=$NOTIFICATION_ID)")
+            Log.i(TAG, "Foreground notification shown")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start foreground notification", e)
         }
 
-        // 启动设备监控（ScreenMonitor + BatteryMonitor）
+        // 启动设备监控（Screen + Battery）
         deviceStateMonitor.start()
-        Log.i(TAG, "DeviceStateMonitor started")
 
         // 启动传感器采集 + 检测
         startSensors()
@@ -132,17 +157,27 @@ class MonitorForegroundService : Service() {
         // 转发设备事件到 EventBus
         startDeviceEventForwarding()
 
-        Log.i(TAG, "══ Service fully started — all 3 monitors active ══")
+        // 启动事件分发 → 规则引擎 → 反馈
+        eventDispatcher.start()
+
+        // 启动周期性屏幕使用时长检查（每 1 分钟）
+        startLongUsageCheck()
+
+        Log.i(TAG, "══ MotionPet fully started ══")
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
-        Log.w(TAG, "╚══ Service onDestroy — releasing all resources ══╝")
+        Log.i(TAG, "╚══ MotionPet Service onDestroy ══╝")
 
-        // 停止前最后检查 LONG_USAGE
-        deviceStateMonitor.screenMonitor.checkLongUsage()
+        // 停止事件分发
+        eventDispatcher.stop()
+
+        // 停止周期性检查
+        longUsageCheckJob?.cancel()
+        longUsageCheckJob = null
 
         // 停止事件转发
         deviceEventForwardJob?.cancel()
@@ -150,13 +185,14 @@ class MonitorForegroundService : Service() {
 
         // 停止设备监控
         deviceStateMonitor.stop()
-        Log.i(TAG, "DeviceStateMonitor stopped")
 
         // 停止传感器
         sensorManager.stopListening()
         sensorManager.release()
         SensorDataBus.setRunning(false)
-        Log.i(TAG, "Sensor pipeline stopped")
+
+        // 清除全局引用
+        CompanionForegroundServiceHolder.instance = null
 
         // 释放协程
         serviceScope.cancel()
@@ -183,17 +219,12 @@ class MonitorForegroundService : Service() {
 
     /**
      * 注册传感器回调 → 原始数据写入 SensorDataBus，检测事件写入 EventBus。
-     *
-     * 运行在传感器事件线程（后台）。
-     * SensorDataBus.tryEmit() 和 EventBus.tryEmit() 均为线程安全非阻塞调用。
      */
     private fun registerSensorPipeline() {
         sensorManager.registerCallback(object : SensorCallback {
             override fun onSensorChanged(data: AccelData) {
-                // 原始数据 → SensorDataBus（UI 实时显示用）
                 SensorDataBus.tryEmit(data)
 
-                // 检测管道 → EventBus（行为响应用）
                 val impact = impactDetector.process(data)
                 val shake = shakeDetector.process(data)
                 val drop = dropDetector.process(data)
@@ -224,6 +255,26 @@ class MonitorForegroundService : Service() {
         deviceEventForwardJob = serviceScope.launch {
             deviceStateMonitor.events.collect { event ->
                 EventBus.tryEmit(event)
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 周期性屏幕使用检查
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * 每 1 分钟检查一次屏幕累计使用时长。
+     * 从配置中读取用户设定的阈值，超过时通过 EventBus 发射 LongUsage 事件。
+     */
+    private fun startLongUsageCheck() {
+        longUsageCheckJob?.cancel()
+        longUsageCheckJob = serviceScope.launch {
+            while (isActive) {
+                delay(60_000L) // 每 1 分钟检查
+                val config = preferenceManager.getConfig(EventType.SCREEN_LONG_USAGE)
+                val thresholdMin = config?.threshold ?: 120
+                deviceStateMonitor.screenMonitor.checkLongUsage(thresholdMin)
             }
         }
     }
@@ -276,14 +327,14 @@ class MonitorForegroundService : Service() {
     }
 
     companion object {
-        private const val TAG = "MotionPetScreenMonitor"
+        private const val TAG = "MotionPet"
 
         // 通知渠道
-        private const val CHANNEL_ID = "monitor_service"
-        private const val CHANNEL_NAME = "Companion Service"
-        private const val CHANNEL_DESCRIPTION = "Shows when device monitoring is active"
-        private const val NOTIFICATION_TITLE = "Pat Companion"
-        private const val NOTIFICATION_TEXT = "Monitoring sensors + screen + battery…"
+        private const val CHANNEL_ID = "motionpet_service"
+        private const val CHANNEL_NAME = "MotionPet Service"
+        private const val CHANNEL_DESCRIPTION = "MotionPet 后台监测服务"
+        private const val NOTIFICATION_TITLE = "MotionPet"
+        private const val NOTIFICATION_TEXT = "正在监测设备状态..."
         private const val NOTIFICATION_ID = 1001
 
         // 手动控制传感器命令

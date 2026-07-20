@@ -7,195 +7,170 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import com.example.pat.event.DeviceEvent
-import com.example.pat.event.DeviceEventLogEntry
-import com.example.pat.event.EventBus
-import com.example.pat.event.SensorDataBus
-import com.example.pat.event.toDisplayLabel
-import com.example.pat.service.MonitorForegroundService
-import com.example.pat.ui.SensorDebugScreen
+import com.example.pat.config.EventConfig
+import com.example.pat.config.PreferenceManager
+import com.example.pat.event.EventType
+import com.example.pat.service.CompanionForegroundService
+import com.example.pat.ui.EditEventScreen
+import com.example.pat.ui.EventListScreen
+import com.example.pat.ui.HomeScreen
+import com.example.pat.ui.navigation.Screen
 import com.example.pat.ui.theme.PatTheme
 import com.example.pat.util.PermissionManager
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 
 /**
- * 主 Activity —— 纯 UI 层。
+ * MotionPet 主 Activity —— 纯 UI 配置层。
  *
- * 不持有任何传感器、检测器或监控器实例。
- * 所有数据通过全局总线获取：
- * ```
- * SensorDataBus → 传感器原始数据（X, Y, Z） + 运行状态
- * EventBus      → 所有 DeviceEvent（Shake, ScreenWake, ChargeStart…）
- * ```
+ * 所有业务逻辑在 [CompanionForegroundService] 中运行。
+ * Activity 仅负责：
+ * - 启动/绑定后台服务
+ * - 提供配置编辑界面
+ * - 展示运行状态和触发历史
  *
- * 生命周期：
- * ```
- * onCreate → 启动 ForegroundService + 开始传感器帧计数
- * onStart  → 开始 EventBus 收集（更新 UI 事件日志）
- * onStop   → 停止 EventBus 收集（省电，Service 继续后台运行）
- * onDestroy→ 取消协程
- * ```
+ * 参考文档：原始规范 5. 前端界面设计
  */
 class MainActivity : ComponentActivity() {
 
-    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private lateinit var preferenceManager: PreferenceManager
 
-    // ── UI 状态 ──
-    private val lastEvent = mutableStateOf<DeviceEvent?>(null)
-    private val eventLog = mutableStateListOf<DeviceEventLogEntry>()
-    private val maxEventLogSize = 50
-    private val sensorFrameCount = mutableStateOf(0)
-
-    // ── EventBus 收集 ──
-    private var collectionJob: kotlinx.coroutines.Job? = null
+    // ── UI 导航状态 ──
+    private var currentScreen by mutableStateOf<Screen>(Screen.Home)
+    private var configs by mutableStateOf<List<EventConfig>>(emptyList())
+    private var todayTriggerCount by mutableIntStateOf(0)
+    private var refreshTrigger by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 请求通知权限（前台服务必需）
+        // 请求通知权限
         requestNotificationPermission()
 
-        // 启动 ForegroundService（托管所有监控器 + 传感器管道）
-        startMonitorService()
+        // 初始化配置管理器
+        preferenceManager = PreferenceManager(this)
 
-        // 传感器帧计数器（用于 UI 诊断显示）
-        activityScope.launch {
-            SensorDataBus.sensorData.collect {
-                sensorFrameCount.value = (sensorFrameCount.value + 1) % 1000
-            }
-        }
+        // 启动后台服务
+        startCompanionService()
+
+        // 加载配置
+        configs = preferenceManager.loadConfigs()
 
         setContent {
-            // 在 Composable 作用域内收集 StateFlow
-            val isSensorRunning by SensorDataBus.isRunning.collectAsState()
+            // 当 refreshTrigger 变化时重新读取配置
+            val currentTrigger = refreshTrigger
+            val screen = currentScreen
 
             PatTheme {
-                SensorDebugScreen(
-                    isSensorRunning = isSensorRunning,
-                    sensorDataFlow = SensorDataBus.sensorData,
-                    latestData = SensorDataBus.latestData,
-                    lastEvent = lastEvent.value,
-                    sensorFrameCount = sensorFrameCount.value,
-                    eventLog = eventLog.toList(),
-                    onStartClick = {
-                        // 通过 Intent 命令让 Service 启动传感器
-                        sendServiceCommand(MonitorForegroundService.ACTION_START_SENSOR)
-                    },
-                    onStopClick = {
-                        sendServiceCommand(MonitorForegroundService.ACTION_STOP_SENSOR)
-                    },
-                    onTestEventClick = {
-                        Log.i(TAG, "=== Test button pressed ===")
-                        EventBus.tryEmit(DeviceEvent.Shake)
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                when (screen) {
+                    is Screen.Home -> {
+                        val service = CompanionForegroundServiceHolder.instance
+                        HomeScreen(
+                            isServiceRunning = service != null,
+                            todayTriggerCount = if (service != null) {
+                                service.eventDispatcher.todayTriggerCount
+                            } else todayTriggerCount,
+                            recentTriggers = if (service != null) {
+                                service.eventDispatcher.recentTriggers
+                            } else emptyList(),
+                            onNavigateToEventList = {
+                                configs = preferenceManager.loadConfigs()
+                                currentScreen = Screen.EventList
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    is Screen.EventList -> {
+                        EventListScreen(
+                            configs = configs,
+                            onToggleEnabled = { config ->
+                                preferenceManager.saveConfig(config)
+                                configs = preferenceManager.loadConfigs()
+                            },
+                            onEditClick = { eventType ->
+                                configs = preferenceManager.loadConfigs()
+                                currentScreen = Screen.EditEvent(eventType)
+                            },
+                            onBack = { currentScreen = Screen.Home },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    is Screen.EditEvent -> {
+                        val editScreen = screen as Screen.EditEvent
+                        val config = configs.find { it.eventType == editScreen.eventType }
+                        if (config != null) {
+                            EditEventScreen(
+                                config = config,
+                                onSave = { updatedConfig ->
+                                    preferenceManager.saveConfig(updatedConfig)
+                                    configs = preferenceManager.loadConfigs()
+                                    currentScreen = Screen.EventList
+                                },
+                                onPreviewVoice = { path ->
+                                    // 通过 Service 的 ResponseManager 试听
+                                    CompanionForegroundServiceHolder.instance
+                                        ?.let { svc ->
+                                            svc.eventDispatcher.stop()
+                                            // 直接创建临时播放器
+                                            com.example.pat.response.VoiceService(this).play(path)
+                                        }
+                                },
+                                onBack = {
+                                    configs = preferenceManager.loadConfigs()
+                                    currentScreen = Screen.EventList
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                }
             }
         }
 
-        Log.i(TAG, "MainActivity created — UI only, all monitors in Service")
+        Log.i(TAG, "MainActivity created — UI only, engine in Service")
     }
 
-    override fun onStart() {
-        super.onStart()
-        startEventCollection()
-        Log.i(TAG, "onStart: EventBus collection started")
+    override fun onResume() {
+        super.onResume()
+        // 刷新配置和服务状态
+        configs = preferenceManager.loadConfigs()
+        refreshTrigger++
     }
-
-    override fun onStop() {
-        collectionJob?.cancel()
-        collectionJob = null
-        Log.i(TAG, "onStop: EventBus collection stopped (Service continues)")
-        super.onStop()
-    }
-
-    override fun onDestroy() {
-        collectionJob?.cancel()
-        activityScope.cancel()
-        Log.i(TAG, "onDestroy")
-        super.onDestroy()
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    // Service 通信
-    // ══════════════════════════════════════════════════════════════
 
     /**
-     * 启动 MonitorForegroundService。
-     * Service 内部托管所有监控器 + 传感器，独立于 Activity 生命周期。
+     * 启动 CompanionForegroundService。
      */
-    private fun startMonitorService() {
-        val intent = Intent(this, MonitorForegroundService::class.java)
+    private fun startCompanionService() {
+        val intent = Intent(this, CompanionForegroundService::class.java)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
             startService(intent)
         }
-        Log.i(TAG, "MonitorForegroundService start requested")
+        Log.i(TAG, "CompanionForegroundService start requested")
     }
-
-    /**
-     * 向 Service 发送命令（如手动启停传感器）。
-     */
-    private fun sendServiceCommand(action: String) {
-        val intent = Intent(this, MonitorForegroundService::class.java).apply {
-            this.action = action
-        }
-        startService(intent)
-        Log.i(TAG, "Service command sent: $action")
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    // EventBus → UI
-    // ══════════════════════════════════════════════════════════════
-
-    /**
-     * 从 EventBus 收集所有事件，统一更新 UI。
-     * 这是 UI 事件更新的唯一入口。
-     */
-    private fun startEventCollection() {
-        collectionJob?.cancel()
-        collectionJob = activityScope.launch {
-            EventBus.events.collect { event ->
-                Log.d(TAG, "UI received: ${event.toDisplayLabel()}")
-                lastEvent.value = event
-                addToLog(event)
-            }
-        }
-    }
-
-    private fun addToLog(event: DeviceEvent) {
-        eventLog.add(0, DeviceEventLogEntry(
-            timestamp = System.currentTimeMillis(),
-            event = event
-        ))
-        if (eventLog.size > maxEventLogSize) {
-            eventLog.removeRange(maxEventLogSize, eventLog.size)
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    // 权限
-    // ══════════════════════════════════════════════════════════════
 
     private fun requestNotificationPermission() {
         if (!PermissionManager.hasNotificationPermission(this)) {
             PermissionManager.requestNotificationPermission(this)
-            Log.i(TAG, "Notification permission requested")
         }
     }
 
     companion object {
-        private const val TAG = "MainActivity"
+        private const val TAG = "MotionPet"
     }
+}
+
+/**
+ * 持有对运行中 Service 实例的引用，供 Activity 获取状态。
+ */
+object CompanionForegroundServiceHolder {
+    @Volatile
+    var instance: CompanionForegroundService? = null
 }
