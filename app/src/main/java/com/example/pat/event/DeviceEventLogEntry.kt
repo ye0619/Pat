@@ -38,6 +38,7 @@ fun DeviceEvent.toDisplayLabel(): String = when (this) {
     is DeviceEvent.LowBattery -> "Low Battery"
     is DeviceEvent.BatteryFull -> "Battery Full"
     is DeviceEvent.ScreenWake -> "Screen Wake"
+    is DeviceEvent.ScreenOff -> "Screen Off"
     is DeviceEvent.LongUsage -> "Long Usage (${minutes}min)"
     is DeviceEvent.LateNight -> "Late Night"
 }

@@ -50,6 +50,9 @@ sealed class DeviceEvent {
     /** 点亮屏幕 / 解锁 */
     data object ScreenWake : DeviceEvent()
 
+    /** 屏幕关闭 */
+    data object ScreenOff : DeviceEvent()
+
     /**
      * 长时间使用手机。
      * @param minutes 累计亮屏分钟数

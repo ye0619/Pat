@@ -53,9 +53,11 @@ fun SensorDebugScreen(
     sensorDataFlow: Flow<AccelData>,
     latestData: AccelData,
     lastEvent: DeviceEvent?,
+    sensorFrameCount: Int = 0,
     eventLog: List<DeviceEventLogEntry>,
     onStartClick: () -> Unit,
     onStopClick: () -> Unit,
+    onTestEventClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val sensorData by sensorDataFlow.collectAsState(initial = latestData)
@@ -105,6 +107,15 @@ fun SensorDebugScreen(
                     else
                         MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (isSensorRunning) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "#$sensorFrameCount",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
 
@@ -233,6 +244,16 @@ fun SensorDebugScreen(
             ) {
                 Text("Stop")
             }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Button(
+            onClick = onTestEventClick,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.tertiary
+            )
+        ) {
+            Text("Test Event (Shake)")
         }
     }
 }

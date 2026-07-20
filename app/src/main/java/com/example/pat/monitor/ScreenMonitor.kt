@@ -1,10 +1,10 @@
 package com.example.pat.monitor
 
-import android.app.Application
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import com.example.pat.event.DeviceEvent
@@ -18,13 +18,16 @@ import java.util.Calendar
  * 屏幕状态监控器。
  *
  * 监听屏幕亮灭和用户解锁事件，产生：
- * - [DeviceEvent.ScreenWake]：点亮屏幕或解锁
+ * - [DeviceEvent.ScreenWake]：屏幕点亮
+ * - [DeviceEvent.ScreenOff]：屏幕关闭
  * - [DeviceEvent.LateNight]：深夜使用（23:00–05:00），每次 SCREEN_WAKE 时检测
  *
  * 同时跟踪累计亮屏时长，通过 [checkLongUsage] 方法供外部查询。
  *
  * 实现要点：
- * - ACTION_SCREEN_ON 在 API 26+ 上无法通过 Manifest 注册，必须动态注册
+ * - ACTION_SCREEN_ON / ACTION_SCREEN_OFF 在 API 26+ 上无法通过 Manifest 注册，必须动态注册
+ * - Receiver 必须在生命周期独立于 Activity 的宿主中注册（如 ForegroundService），
+ *   否则锁屏/亮屏时 Activity 正处于停止状态，Receiver 来不及收到广播
  * - 使用 [SystemClock.elapsedRealtime] 累计亮屏时长（单调时钟，不受系统时间调整影响）
  *
  * 参考文档：5.4 屏幕监控设计
@@ -56,15 +59,50 @@ class ScreenMonitor(
     private var lateNightEmitted: Boolean = false
 
     override fun start() {
-        if (isStarted) return
+        if (isStarted) {
+            Log.w(TAG, "ScreenMonitor already started, ignoring duplicate start()")
+            return
+        }
         isStarted = true
         sessionStartTime = 0L
         lateNightEmitted = false
 
+        // ══════════════════════════════════════════════════════════
+        // 兜底检测：Service 可能在深度休眠期间被系统杀死，
+        // 此时 ACTION_SCREEN_ON 广播已发送完毕，BroadcastReceiver
+        // 重建后永远收不到该广播。通过 PowerManager 检测当前
+        // 屏幕状态来补偿丢失的事件。
+        // ══════════════════════════════════════════════════════════
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val isScreenOn = pm.isInteractive
+        Log.i(TAG, "Initial screen state: ${if (isScreenOn) "ON (interactive)" else "OFF (non-interactive)"}")
+
+        if (isScreenOn) {
+            // 屏幕当前是亮的，但我们没有 sessionStartTime，
+            // 说明错过了 ACTION_SCREEN_ON 广播（Service 刚重建或首次启动）。
+            // 补偿：初始化亮屏计时 + 发射 ScreenWake 事件
+            sessionStartTime = SystemClock.elapsedRealtime()
+            Log.i(TAG, "Fallback: initializing screen-on state (missed broadcast compensated)")
+
+            // 深夜检测（与 onReceive 中的逻辑保持一致）
+            if (!lateNightEmitted && isLateNightHour()) {
+                lateNightEmitted = true
+                _events.tryEmit(DeviceEvent.LateNight)
+                Log.i(TAG, "Event emitted (fallback): LateNight")
+            }
+
+            _events.tryEmit(DeviceEvent.ScreenWake)
+            Log.i(TAG, "Event emitted (fallback): ScreenWake")
+        }
+        // 注意：isScreenOn == false 时不发射 ScreenOff，
+        // 因为可能是 Service 在灭屏期间重建，未错过任何事件
+
         val screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
+                Log.d(TAG, "onReceive: action=${intent.action}")
                 when (intent.action) {
                     Intent.ACTION_SCREEN_ON -> {
+                        Log.i(TAG, "SCREEN_ON detected")
                         // 开始累计这一段的亮屏时长
                         sessionStartTime = SystemClock.elapsedRealtime()
 
@@ -72,23 +110,28 @@ class ScreenMonitor(
                         if (!lateNightEmitted && isLateNightHour()) {
                             lateNightEmitted = true
                             _events.tryEmit(DeviceEvent.LateNight)
-                            Log.d(TAG, "Event: LateNight")
+                            Log.i(TAG, "Event emitted: LateNight")
                         }
 
                         _events.tryEmit(DeviceEvent.ScreenWake)
-                        Log.d(TAG, "Event: ScreenWake")
+                        Log.i(TAG, "Event emitted: ScreenWake")
                     }
 
                     Intent.ACTION_SCREEN_OFF -> {
+                        Log.i(TAG, "SCREEN_OFF detected")
                         // 停止累计：将当前段的时长加入总累计
                         if (sessionStartTime > 0L) {
                             totalAccumulatedMs +=
                                 SystemClock.elapsedRealtime() - sessionStartTime
                             sessionStartTime = 0L
                         }
+
+                        _events.tryEmit(DeviceEvent.ScreenOff)
+                        Log.i(TAG, "Event emitted: ScreenOff")
                     }
 
                     Intent.ACTION_USER_PRESENT -> {
+                        Log.d(TAG, "USER_PRESENT detected (device unlocked)")
                         // 解锁事件：某些设备上 SCREEN_ON 比 USER_PRESENT 早
                         // 如果还没有开始累计（例如从锁屏唤醒），立即开始
                         if (sessionStartTime == 0L) {
@@ -104,21 +147,34 @@ class ScreenMonitor(
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_USER_PRESENT)
         }
+
+        val registeredCount = filter.countActions()
         context.registerReceiver(screenReceiver, filter)
         receiver = screenReceiver
-        Log.i(TAG, "ScreenMonitor started")
+
+        Log.i(TAG, "ScreenMonitor started — listening for $registeredCount actions " +
+                "(context=${context.javaClass.simpleName}@${System.identityHashCode(context)})")
     }
 
     override fun stop() {
-        if (!isStarted) return
+        if (!isStarted) {
+            Log.w(TAG, "ScreenMonitor not started, ignoring stop()")
+            return
+        }
         isStarted = false
-        receiver?.let { context.unregisterReceiver(it) }
+        receiver?.let {
+            try {
+                context.unregisterReceiver(it)
+                Log.i(TAG, "ScreenMonitor stopped — receiver unregistered")
+            } catch (e: IllegalArgumentException) {
+                Log.w(TAG, "ScreenMonitor stop: receiver already unregistered", e)
+            }
+        }
         receiver = null
         lateNightEmitted = false
         longUsageEmitted = false
         sessionStartTime = 0L
         totalAccumulatedMs = 0L
-        Log.i(TAG, "ScreenMonitor stopped")
     }
 
     /**
@@ -141,7 +197,7 @@ class ScreenMonitor(
         if (totalMinutes >= thresholdMinutes) {
             longUsageEmitted = true
             _events.tryEmit(DeviceEvent.LongUsage(minutes = totalMinutes))
-            Log.d(TAG, "Event: LongUsage (${totalMinutes}min)")
+            Log.d(TAG, "Event emitted: LongUsage (${totalMinutes}min)")
             return true
         }
         return false
@@ -156,6 +212,7 @@ class ScreenMonitor(
     }
 
     companion object {
-        private const val TAG = "ScreenMonitor"
+        /** 统一调试 Tag */
+        const val TAG = "MotionPetScreenMonitor"
     }
 }
