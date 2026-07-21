@@ -87,15 +87,19 @@ class BatteryMonitor(
                     Intent.ACTION_POWER_CONNECTED -> {
                         isCharging = true
                         hasEmittedFull = false
-                        // 充电开始 → 重置低电量标记（电量将回升）
-                        lowBatteryEmitted = false
+                        // 注意：不重置 lowBatteryEmitted，避免充电+低电量同时触发
+                        // 低电量锁定将在电量回升到阈值以上时由 ACTION_BATTERY_CHANGED 解除
                         _events.tryEmit(DeviceEvent.ChargeStart)
                         Log.d(TAG, "Event: ChargeStart")
                     }
 
                     Intent.ACTION_BATTERY_LOW -> {
                         // 系统低电量广播作为兜底（通常 ~15%）
-                        // 如果自定义阈值已触发过，跳过
+                        // 充电中或已触发过 → 跳过
+                        if (isCharging) {
+                            Log.d(TAG, "LowBattery system broadcast skipped (currently charging)")
+                            return
+                        }
                         if (lowBatteryEmitted) {
                             Log.d(TAG, "LowBattery system broadcast skipped (already emitted via custom threshold)")
                             return
@@ -119,18 +123,25 @@ class BatteryMonitor(
                                 || status == BatteryManager.BATTERY_STATUS_FULL
 
                         // ── 自定义阈值低电量检测（带滞回） ──
-                        if (lowBatteryPercent > 0 && !currentlyCharging) {
+                        if (lowBatteryPercent > 0) {
                             val recoveryThreshold = (lowBatteryPercent + 5).coerceAtMost(100)
 
-                            if (!lowBatteryEmitted && pct in 1..lowBatteryPercent) {
-                                // 电量降到阈值以下 → 触发
-                                lowBatteryEmitted = true
-                                _events.tryEmit(DeviceEvent.LowBattery)
-                                Log.d(TAG, "Event: LowBattery ($pct% <= ${lowBatteryPercent}%)")
-                            } else if (lowBatteryEmitted && pct > recoveryThreshold) {
-                                // 电量回升到恢复阈值以上 → 解除锁定
-                                lowBatteryEmitted = false
-                                Log.d(TAG, "LowBattery lock released ($pct% > $recoveryThreshold%)")
+                            if (!currentlyCharging) {
+                                // 未充电状态：检测电量下降
+                                if (!lowBatteryEmitted && pct in 1..lowBatteryPercent) {
+                                    lowBatteryEmitted = true
+                                    _events.tryEmit(DeviceEvent.LowBattery)
+                                    Log.d(TAG, "Event: LowBattery ($pct% <= ${lowBatteryPercent}%)")
+                                } else if (lowBatteryEmitted && pct > recoveryThreshold) {
+                                    lowBatteryEmitted = false
+                                    Log.d(TAG, "LowBattery lock released ($pct% > $recoveryThreshold%)")
+                                }
+                            } else {
+                                // 充电状态：电量回升到阈值以上 → 解除低电量锁定
+                                if (lowBatteryEmitted && pct > lowBatteryPercent) {
+                                    lowBatteryEmitted = false
+                                    Log.d(TAG, "LowBattery lock released while charging ($pct% > ${lowBatteryPercent}%)")
+                                }
                             }
                         }
 
