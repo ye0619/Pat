@@ -44,13 +44,14 @@ class ImpactDetector(
         }
 
         // 峰值检测：当前值 > 阈值 且 是窗口内最大值
-        val isCalm = window.size == windowSize &&
-                window.all { it in AccelData.STILL_LOWER_BOUND..AccelData.STILL_UPPER_BOUND }
+        // 注：isCalm 检查窗口中的旧样本（排除当前撞击样本），确保设备在撞击前处于静止状态
+        val previousSamplesCalm = window.size == windowSize &&
+                window.dropLast(1).all { it in AccelData.STILL_LOWER_BOUND..AccelData.STILL_UPPER_BOUND }
 
         val isPeak = magnitude > threshold &&
                 (window.size < windowSize || magnitude == window.maxOrNull())
 
-        if (isPeak && isCalm) {
+        if (isPeak && previousSamplesCalm) {
             lastImpactTime = now
             return ImpactResult.Detected(magnitude)
         }

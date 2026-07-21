@@ -61,7 +61,7 @@ class RuleEngine(
                 if (event is DeviceEvent.LongUsage) event.minutes >= config.threshold
                 else true
             }
-            EventType.LOW_BATTERY -> true
+            EventType.LOW_BATTERY -> true  // 阈值检测已在 BatteryMonitor 层完成，此处仅确认事件类型匹配
             EventType.CHARGE_START,
             EventType.SHAKE,
             EventType.IMPACT -> true

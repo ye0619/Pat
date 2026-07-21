@@ -25,6 +25,7 @@ import com.example.pat.event.DeviceEvent
 import com.example.pat.event.EventBus
 import com.example.pat.event.EventType
 import com.example.pat.event.SensorDataBus
+import com.example.pat.model.EventConfig
 import com.example.pat.monitor.DeviceStateMonitor
 import com.example.pat.response.ResponseManager
 import com.example.pat.sensor.AccelData
@@ -106,8 +107,13 @@ class CompanionForegroundService : Service() {
         presetRepository = PresetRepository(this)
         configRepository = EventConfigRepository(this, presetRepository)
 
+        // 读取用户配置的低电量阈值
+        val lowBatteryThreshold = configRepository
+            .getByEventType(EventType.LOW_BATTERY)?.threshold
+            ?: EventConfig.defaultThreshold(EventType.LOW_BATTERY)
+
         // 初始化设备状态监控器
-        deviceStateMonitor = DeviceStateMonitor(this, serviceScope)
+        deviceStateMonitor = DeviceStateMonitor(this, serviceScope, lowBatteryPercent = lowBatteryThreshold)
 
         // 初始化传感器管理器
         sensorManager = MotionSensorManager(this)
@@ -187,12 +193,25 @@ class CompanionForegroundService : Service() {
         sensorManager.registerCallback(object : SensorCallback {
             override fun onSensorChanged(data: AccelData) {
                 SensorDataBus.tryEmit(data)
-                val impact = impactDetector.process(data)
-                val shake = shakeDetector.process(data)
+
+                // 优先级：Drop > Impact > Shake
+                // 跌落检测优先，避免跌落冲击被误判为撞击
                 val drop = dropDetector.process(data)
-                if (impact is ImpactResult.Detected) EventBus.tryEmit(DeviceEvent.Impact(impact.intensity))
-                if (shake) EventBus.tryEmit(DeviceEvent.Shake)
-                if (drop is DropResult.Detected) EventBus.tryEmit(DeviceEvent.Drop(drop.impactForce))
+                if (drop is DropResult.Detected) {
+                    EventBus.tryEmit(DeviceEvent.Drop(drop.impactForce))
+                    // 跌落已触发 → 跳过 Impact/Shake 检测（避免同一物理事件触发多个反馈）
+                    return
+                }
+
+                val impact = impactDetector.process(data)
+                if (impact is ImpactResult.Detected) {
+                    EventBus.tryEmit(DeviceEvent.Impact(impact.intensity))
+                }
+
+                val shake = shakeDetector.process(data)
+                if (shake) {
+                    EventBus.tryEmit(DeviceEvent.Shake)
+                }
             }
             override fun onAccuracyChanged(sensorType: Int, accuracy: Int) {
                 Log.d(TAG, "Sensor accuracy changed: type=$sensorType accuracy=$accuracy")

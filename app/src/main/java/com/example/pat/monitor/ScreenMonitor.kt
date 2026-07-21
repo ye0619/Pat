@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
@@ -12,7 +13,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * 屏幕状态监控器。
@@ -48,8 +52,8 @@ class ScreenMonitor(
     /**
      * 累计亮屏时长跟踪。
      * sessionStartTime: 当前亮屏段开始时间（elapsedRealtime），0 表示灭屏
-     * totalAccumulatedMs: 之前所有亮屏段的累计时长
-     * longUsageEmitted: 本次 session 是否已经发射过 LONG_USAGE
+     * totalAccumulatedMs: 之前所有亮屏段的累计时长（持久化）
+     * longUsageEmitted: 今日是否已经发射过 LONG_USAGE（持久化）
      */
     private var sessionStartTime: Long = 0L
     private var totalAccumulatedMs: Long = 0L
@@ -57,6 +61,15 @@ class ScreenMonitor(
 
     /** 深夜发射标记：同一段深夜范围只发射一次 */
     private var lateNightEmitted: Boolean = false
+
+    /** 持久化存储 */
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** 上次持久化的日期（用于跨天重置），格式 yyyy-MM-dd */
+    private var lastResetDate: String = ""
+    private val todayDate: String
+        get() = DATE_FORMAT.format(Date())
 
     override fun start() {
         if (isStarted) {
@@ -67,6 +80,9 @@ class ScreenMonitor(
         sessionStartTime = 0L
         lateNightEmitted = false
 
+        // ── 恢复持久化状态，检查跨天重置 ──
+        restoreState()
+
         // ══════════════════════════════════════════════════════════
         // 兜底检测：Service 可能在深度休眠期间被系统杀死，
         // 此时 ACTION_SCREEN_ON 广播已发送完毕，BroadcastReceiver
@@ -75,7 +91,8 @@ class ScreenMonitor(
         // ══════════════════════════════════════════════════════════
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         val isScreenOn = pm.isInteractive
-        Log.i(TAG, "Initial screen state: ${if (isScreenOn) "ON (interactive)" else "OFF (non-interactive)"}")
+        Log.i(TAG, "Initial screen state: ${if (isScreenOn) "ON (interactive)" else "OFF (non-interactive)"}" +
+                " | accumulated=${totalAccumulatedMs}ms, longUsageEmitted=$longUsageEmitted")
 
         if (isScreenOn) {
             // 屏幕当前是亮的，但我们没有 sessionStartTime，
@@ -124,6 +141,8 @@ class ScreenMonitor(
                             totalAccumulatedMs +=
                                 SystemClock.elapsedRealtime() - sessionStartTime
                             sessionStartTime = 0L
+                            // 持久化累计时长
+                            persistState()
                         }
 
                         _events.tryEmit(DeviceEvent.ScreenOff)
@@ -196,6 +215,7 @@ class ScreenMonitor(
 
         if (totalMinutes >= thresholdMinutes) {
             longUsageEmitted = true
+            persistState()  // 持久化触发标记
             _events.tryEmit(DeviceEvent.LongUsage(minutes = totalMinutes))
             Log.d(TAG, "Event emitted: LongUsage (${totalMinutes}min)")
             return true
@@ -211,8 +231,69 @@ class ScreenMonitor(
         return hour >= 23 || hour < 5
     }
 
+    // ══════════════════════════════════════════════════════════════
+    // 持久化（Service 重启后恢复状态）
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * 持久化当前状态到 SharedPreferences。
+     * 在 SCREEN_OFF 和 LONG_USAGE 触发时调用。
+     */
+    private fun persistState() {
+        prefs.edit()
+            .putLong(KEY_ACCUMULATED_MS, totalAccumulatedMs)
+            .putBoolean(KEY_LONG_USAGE_EMITTED, longUsageEmitted)
+            .putString(KEY_LAST_RESET_DATE, todayDate)
+            .apply()
+    }
+
+    /**
+     * 从 SharedPreferences 恢复状态。
+     * 如果是新的一天，重置累计时长和触发标记。
+     */
+    private fun restoreState() {
+        lastResetDate = prefs.getString(KEY_LAST_RESET_DATE, "") ?: ""
+        val persistedDate = lastResetDate
+
+        if (persistedDate.isNotEmpty() && persistedDate != todayDate) {
+            // 跨天 → 重置所有状态
+            Log.i(TAG, "New day detected ($persistedDate → $todayDate) — resetting long usage state")
+            totalAccumulatedMs = 0L
+            longUsageEmitted = false
+            lastResetDate = todayDate
+            prefs.edit()
+                .putLong(KEY_ACCUMULATED_MS, 0L)
+                .putBoolean(KEY_LONG_USAGE_EMITTED, false)
+                .putString(KEY_LAST_RESET_DATE, todayDate)
+                .apply()
+        } else {
+            // 同一天 → 恢复已持久化的状态
+            totalAccumulatedMs = prefs.getLong(KEY_ACCUMULATED_MS, 0L)
+            longUsageEmitted = prefs.getBoolean(KEY_LONG_USAGE_EMITTED, false)
+            if (persistedDate.isEmpty()) {
+                lastResetDate = todayDate
+            }
+            if (totalAccumulatedMs > 0L || longUsageEmitted) {
+                Log.i(TAG, "State restored: accumulated=${totalAccumulatedMs}ms, longUsageEmitted=$longUsageEmitted")
+            }
+        }
+    }
+
     companion object {
         /** 统一调试 Tag */
         const val TAG = "MotionPetScreenMonitor"
+
+        /** SharedPreferences 文件名 */
+        private const val PREFS_NAME = "motionpet_screen_state"
+
+        /** 持久化 Key：累计亮屏时长 (ms) */
+        private const val KEY_ACCUMULATED_MS = "total_accumulated_ms"
+        /** 持久化 Key：今日是否已触发 LONG_USAGE */
+        private const val KEY_LONG_USAGE_EMITTED = "long_usage_emitted"
+        /** 持久化 Key：上次重置日期 */
+        private const val KEY_LAST_RESET_DATE = "last_reset_date"
+
+        /** 日期格式（用于跨天检测） */
+        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     }
 }
