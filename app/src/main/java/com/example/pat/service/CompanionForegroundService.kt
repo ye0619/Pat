@@ -14,6 +14,7 @@ import com.example.pat.CompanionForegroundServiceHolder
 import com.example.pat.MainActivity
 import com.example.pat.data.EventConfigRepository
 import com.example.pat.data.PresetRepository
+import com.example.pat.data.UserRuleRepository
 import com.example.pat.detector.DropDetector
 import com.example.pat.detector.DropResult
 import com.example.pat.detector.ImpactDetector
@@ -21,12 +22,16 @@ import com.example.pat.detector.ImpactResult
 import com.example.pat.detector.ShakeDetector
 import com.example.pat.engine.EventDispatcher
 import com.example.pat.engine.RuleEngine
+import com.example.pat.engine.RuleEngineV2
+import com.example.pat.event.AtomicEvent
+import com.example.pat.event.AtomicEventBus
 import com.example.pat.event.DeviceEvent
 import com.example.pat.event.EventBus
 import com.example.pat.event.EventType
 import com.example.pat.event.SensorDataBus
 import com.example.pat.model.EventConfig
 import com.example.pat.monitor.DeviceStateMonitor
+import com.example.pat.model.UserRule
 import com.example.pat.response.ResponseManager
 import com.example.pat.sensor.AccelData
 import com.example.pat.sensor.MotionSensorManager
@@ -77,9 +82,13 @@ class CompanionForegroundService : Service() {
     // ── 数据层 ──
     private lateinit var presetRepository: PresetRepository
     private lateinit var configRepository: EventConfigRepository
+    private lateinit var userRuleRepository: UserRuleRepository
 
     // ── 引擎 ──
     private lateinit var ruleEngine: RuleEngine
+    /** 新规则引擎 v2（用户自定义组合规则） */
+    lateinit var ruleEngineV2: RuleEngineV2
+        private set
     lateinit var responseManager: ResponseManager
         private set
     lateinit var eventDispatcher: EventDispatcher
@@ -106,6 +115,7 @@ class CompanionForegroundService : Service() {
         // 初始化数据层
         presetRepository = PresetRepository(this)
         configRepository = EventConfigRepository(this, presetRepository)
+        userRuleRepository = UserRuleRepository(this)
 
         // 读取用户配置的低电量阈值
         val lowBatteryThreshold = configRepository
@@ -126,6 +136,15 @@ class CompanionForegroundService : Service() {
 
         // 初始化事件分发器
         eventDispatcher = EventDispatcher(ruleEngine, responseManager, serviceScope)
+
+        // 初始化新规则引擎 v2（用户自定义组合规则）
+        ruleEngineV2 = RuleEngineV2(userRuleRepository, scope = serviceScope)
+        ruleEngineV2.onRuleMatched = { rule ->
+            Log.i(TAG, "RuleEngineV2 matched: \"${rule.name}\" — executing reaction")
+            // 使用 EventBus 桥接：将匹配的规则转为 DeviceEvent 触发反馈
+            // 规则携带 reactionPresetId，但目前桥接到现有的 EventDispatcher 流程
+            executeRuleReaction(rule)
+        }
 
         // 注册传感器检测管道
         registerSensorPipeline()
@@ -153,6 +172,7 @@ class CompanionForegroundService : Service() {
         startSensors()
         startDeviceEventForwarding()
         eventDispatcher.start()
+        ruleEngineV2.start()
         startLongUsageCheck()
 
         Log.i(TAG, "══ MotionPet fully started ══")
@@ -164,6 +184,7 @@ class CompanionForegroundService : Service() {
     override fun onDestroy() {
         Log.i(TAG, "╚══ MotionPet Service onDestroy ══╝")
         eventDispatcher.stop()
+        ruleEngineV2.stop()
         longUsageCheckJob?.cancel(); longUsageCheckJob = null
         deviceEventForwardJob?.cancel(); deviceEventForwardJob = null
         deviceStateMonitor.stop()
@@ -193,30 +214,76 @@ class CompanionForegroundService : Service() {
         sensorManager.registerCallback(object : SensorCallback {
             override fun onSensorChanged(data: AccelData) {
                 SensorDataBus.tryEmit(data)
+                val now = System.currentTimeMillis()
 
                 // 优先级：Drop > Impact > Shake
                 // 跌落检测优先，避免跌落冲击被误判为撞击
                 val drop = dropDetector.process(data)
                 if (drop is DropResult.Detected) {
                     EventBus.tryEmit(DeviceEvent.Drop(drop.impactForce))
-                    // 跌落已触发 → 跳过 Impact/Shake 检测（避免同一物理事件触发多个反馈）
+                    AtomicEventBus.tryEmit(AtomicEvent.Drop(now, drop.impactForce))
                     return
                 }
 
                 val impact = impactDetector.process(data)
                 if (impact is ImpactResult.Detected) {
                     EventBus.tryEmit(DeviceEvent.Impact(impact.intensity))
+                    AtomicEventBus.tryEmit(AtomicEvent.Impact(now, impact.intensity))
                 }
 
                 val shake = shakeDetector.process(data)
                 if (shake) {
                     EventBus.tryEmit(DeviceEvent.Shake)
+                    AtomicEventBus.tryEmit(AtomicEvent.Shake(now))
                 }
             }
             override fun onAccuracyChanged(sensorType: Int, accuracy: Int) {
                 Log.d(TAG, "Sensor accuracy changed: type=$sensorType accuracy=$accuracy")
             }
         })
+    }
+
+    /**
+     * 执行用户自定义规则的反馈。
+     * 桥接 UserRule → 现有 ResponseManager + NotificationService。
+     */
+    private fun executeRuleReaction(rule: UserRule) {
+        // 解析反馈文本
+        val preset: com.example.pat.model.ReactionPreset? =
+            if (rule.reactionPresetId.isNotBlank())
+                presetRepository.getById(rule.reactionPresetId)
+            else null
+
+        val displayText = preset?.text ?: "\"${rule.name}\" 已触发"
+
+        // 通知
+        if (rule.notificationEnabled && displayText.isNotBlank()) {
+            responseManager.run {
+                // 直接使用 NotificationService（绕过 ResponseManager 的全局锁和预设解析）
+                val ns = com.example.pat.response.NotificationService(this@CompanionForegroundService)
+                ns.show(
+                    title = "Pat",
+                    text = displayText,
+                    enableSound = rule.soundEnabled,
+                    enableVibration = rule.vibrationEnabled,
+                    showHeadsUp = rule.showHeadsUp,
+                    lockScreenPublic = rule.lockScreenPublic
+                )
+                Log.i(TAG, "Rule reaction: \"${rule.name}\" → \"$displayText\"")
+            }
+        }
+
+        // 音频
+        val audioPath = preset?.audioAssetPath ?: ""
+        if (audioPath.isNotBlank()) {
+            if (preset?.audioType == com.example.pat.model.AudioType.CUSTOM &&
+                (audioPath.startsWith("/") || audioPath.startsWith(filesDir.absolutePath))
+            ) {
+                com.example.pat.response.VoiceService(this).play(audioPath)
+            } else {
+                com.example.pat.audio.AudioPlayer(this).playAsset(audioPath)
+            }
+        }
     }
 
     private fun startDeviceEventForwarding() {

@@ -21,4 +21,10 @@ sealed class Screen {
         val eventType: EventType,
         val presetId: String? = null  // null = 新建
     ) : Screen()
+
+    /** 自定义规则列表 */
+    data object RuleList : Screen()
+
+    /** 规则构建器（null = 新建，非null = 编辑） */
+    data class RuleBuilder(val ruleId: String? = null) : Screen()
 }

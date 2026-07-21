@@ -14,14 +14,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.example.pat.data.EventConfigRepository
 import com.example.pat.data.PresetRepository
+import com.example.pat.data.UserRuleRepository
 import com.example.pat.event.DeviceEvent
 import com.example.pat.event.EventBus
 import com.example.pat.model.EventConfig
+import com.example.pat.model.UserRule
 import com.example.pat.service.CompanionForegroundService
 import com.example.pat.ui.EditEventScreen
 import com.example.pat.ui.EventListScreen
 import com.example.pat.ui.HomeScreen
 import com.example.pat.ui.PresetEditScreen
+import com.example.pat.ui.RuleBuilderScreen
+import com.example.pat.ui.RuleListScreen
 import com.example.pat.ui.navigation.Screen
 import com.example.pat.ui.theme.PatTheme
 import com.example.pat.util.PermissionManager
@@ -34,10 +38,12 @@ class MainActivity : ComponentActivity() {
     // ── 数据层（Activity 级别，供所有 Composable 使用） ──
     private lateinit var presetRepository: PresetRepository
     private lateinit var configRepository: EventConfigRepository
+    private lateinit var userRuleRepository: UserRuleRepository
 
     // ── UI 状态 ──
     private var currentScreen by mutableStateOf<Screen>(Screen.Home)
     private var configs by mutableStateOf<List<EventConfig>>(emptyList())
+    private var userRules by mutableStateOf<List<UserRule>>(emptyList())
     private var todayTriggerCount by mutableIntStateOf(0)
     private var refreshTrigger by mutableIntStateOf(0)
 
@@ -50,6 +56,7 @@ class MainActivity : ComponentActivity() {
         // 初始化数据层
         presetRepository = PresetRepository(this)
         configRepository = EventConfigRepository(this, presetRepository)
+        userRuleRepository = UserRuleRepository(this)
 
         // 启动后台服务
         startCompanionService()
@@ -76,6 +83,10 @@ class MainActivity : ComponentActivity() {
                             onNavigateToEventList = {
                                 configs = configRepository.loadAll()
                                 currentScreen = Screen.EventList
+                            },
+                            onNavigateToRuleList = {
+                                userRules = userRuleRepository.loadAll()
+                                currentScreen = Screen.RuleList
                             },
                             onTestEvent = { eventType ->
                                 val testEvent = when (eventType) {
@@ -177,6 +188,50 @@ class MainActivity : ComponentActivity() {
                             onBack = {
                                 currentScreen = Screen.EditEvent(editPreset.eventType)
                             },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    is Screen.RuleList -> {
+                        RuleListScreen(
+                            rules = userRules,
+                            onToggleEnabled = { rule ->
+                                userRuleRepository.save(rule)
+                                userRules = userRuleRepository.loadAll()
+                            },
+                            onEditClick = { rule ->
+                                currentScreen = Screen.RuleBuilder(rule.id)
+                            },
+                            onDeleteClick = { rule ->
+                                userRuleRepository.delete(rule.id)
+                                userRules = userRuleRepository.loadAll()
+                            },
+                            onCreateClick = {
+                                currentScreen = Screen.RuleBuilder(null)
+                            },
+                            onBack = { currentScreen = Screen.Home },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    is Screen.RuleBuilder -> {
+                        val builderScreen = screen as Screen.RuleBuilder
+                        val existingRule = builderScreen.ruleId?.let {
+                            userRuleRepository.loadAll().find { r -> r.id == it }
+                        }
+                        RuleBuilderScreen(
+                            existingRule = existingRule,
+                            presetRepository = presetRepository,
+                            onSave = { rule ->
+                                userRuleRepository.save(rule)
+                                userRules = userRuleRepository.loadAll()
+                                // 通知 Service 中的 RuleEngineV2 重新加载
+                                CompanionForegroundServiceHolder.instance?.let { svc ->
+                                    svc.ruleEngineV2?.reloadRules()
+                                }
+                                currentScreen = Screen.RuleList
+                            },
+                            onBack = { currentScreen = Screen.RuleList },
                             modifier = Modifier.fillMaxSize()
                         )
                     }

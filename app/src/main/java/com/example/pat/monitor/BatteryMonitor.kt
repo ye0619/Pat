@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.util.Log
+import com.example.pat.event.AtomicEvent
+import com.example.pat.event.AtomicEventBus
 import com.example.pat.event.DeviceEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -89,7 +91,9 @@ class BatteryMonitor(
                         hasEmittedFull = false
                         // 注意：不重置 lowBatteryEmitted，避免充电+低电量同时触发
                         // 低电量锁定将在电量回升到阈值以上时由 ACTION_BATTERY_CHANGED 解除
+                        val now = System.currentTimeMillis()
                         _events.tryEmit(DeviceEvent.ChargeStart)
+                        AtomicEventBus.tryEmit(AtomicEvent.ChargeStart(now))
                         Log.d(TAG, "Event: ChargeStart")
                     }
 
@@ -145,9 +149,24 @@ class BatteryMonitor(
                             }
                         }
 
+                        // 发射原子事件：电量变化（每次 BATTERY_CHANGED 都发射）
+                        if (pct in 0..100) {
+                            AtomicEventBus.tryEmit(AtomicEvent.BatteryLevel(
+                                System.currentTimeMillis(), pct
+                            ))
+                        }
+
                         // 更新 isCharging（用于 BatteryFull 判断）
                         if (currentlyCharging != isCharging) {
+                            val wasCharging = isCharging
                             isCharging = currentlyCharging
+                            // 发射原子事件：充电状态变化
+                            val now = System.currentTimeMillis()
+                            if (!wasCharging && currentlyCharging) {
+                                AtomicEventBus.tryEmit(AtomicEvent.ChargeStart(now))
+                            } else if (wasCharging && !currentlyCharging) {
+                                AtomicEventBus.tryEmit(AtomicEvent.ChargeStop(now))
+                            }
                         }
 
                         // ── 充电完成检测 ──

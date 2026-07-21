@@ -8,6 +8,8 @@ import android.content.SharedPreferences
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import com.example.pat.event.AtomicEvent
+import com.example.pat.event.AtomicEventBus
 import com.example.pat.event.DeviceEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -104,11 +106,15 @@ class ScreenMonitor(
             // 深夜检测（与 onReceive 中的逻辑保持一致）
             if (!lateNightEmitted && isLateNightHour()) {
                 lateNightEmitted = true
+                val now = System.currentTimeMillis()
                 _events.tryEmit(DeviceEvent.LateNight)
+                AtomicEventBus.tryEmit(AtomicEvent.LateNight(now))
                 Log.i(TAG, "Event emitted (fallback): LateNight")
             }
 
+            val now = System.currentTimeMillis()
             _events.tryEmit(DeviceEvent.ScreenWake)
+            AtomicEventBus.tryEmit(AtomicEvent.ScreenOn(now))
             Log.i(TAG, "Event emitted (fallback): ScreenWake")
         }
         // 注意：isScreenOn == false 时不发射 ScreenOff，
@@ -120,6 +126,7 @@ class ScreenMonitor(
                 when (intent.action) {
                     Intent.ACTION_SCREEN_ON -> {
                         Log.i(TAG, "SCREEN_ON detected")
+                        val now = System.currentTimeMillis()
                         // 开始累计这一段的亮屏时长
                         sessionStartTime = SystemClock.elapsedRealtime()
 
@@ -127,10 +134,12 @@ class ScreenMonitor(
                         if (!lateNightEmitted && isLateNightHour()) {
                             lateNightEmitted = true
                             _events.tryEmit(DeviceEvent.LateNight)
+                            AtomicEventBus.tryEmit(AtomicEvent.LateNight(now))
                             Log.i(TAG, "Event emitted: LateNight")
                         }
 
                         _events.tryEmit(DeviceEvent.ScreenWake)
+                        AtomicEventBus.tryEmit(AtomicEvent.ScreenOn(now))
                         Log.i(TAG, "Event emitted: ScreenWake")
                     }
 
@@ -145,7 +154,9 @@ class ScreenMonitor(
                             persistState()
                         }
 
+                        val now = System.currentTimeMillis()
                         _events.tryEmit(DeviceEvent.ScreenOff)
+                        AtomicEventBus.tryEmit(AtomicEvent.ScreenOff(now))
                         Log.i(TAG, "Event emitted: ScreenOff")
                     }
 
@@ -216,7 +227,9 @@ class ScreenMonitor(
         if (totalMinutes >= thresholdMinutes) {
             longUsageEmitted = true
             persistState()  // 持久化触发标记
+            val now = System.currentTimeMillis()
             _events.tryEmit(DeviceEvent.LongUsage(minutes = totalMinutes))
+            AtomicEventBus.tryEmit(AtomicEvent.LongUsage(now, totalMinutes))
             Log.d(TAG, "Event emitted: LongUsage (${totalMinutes}min)")
             return true
         }
