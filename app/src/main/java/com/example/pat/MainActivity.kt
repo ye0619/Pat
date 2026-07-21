@@ -128,7 +128,7 @@ class MainActivity : ComponentActivity() {
                                 userRuleRepository.delete(rule.id)
                                 userRules = userRuleRepository.loadAll()
                             },
-                            onCreateRuleClick = {
+                            onCreateClick = {
                                 currentScreen = Screen.RuleBuilder(null)
                             },
                             onBack = { currentScreen = Screen.Home },

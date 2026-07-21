@@ -111,6 +111,7 @@ class EventConfigRepository(
                 put("presetId", config.presetId)
                 put("notificationEnabled", config.notificationEnabled)
                 put("minIntervalMinutes", config.minIntervalMinutes)
+                put("priority", config.priority)
                 put("vibrationEnabled", config.vibrationEnabled)
                 put("soundEnabled", config.soundEnabled)
                 put("showHeadsUp", config.showHeadsUp)
@@ -141,6 +142,7 @@ class EventConfigRepository(
                     presetId = obj.optString("presetId", ""),
                     notificationEnabled = obj.optBoolean("notificationEnabled", true),
                     minIntervalMinutes = obj.optInt("minIntervalMinutes", 10),
+                    priority = obj.optInt("priority", 5),
                     // optBoolean 对不存在的 key 返回 false，新字段需手动处理默认值
                     vibrationEnabled = if (obj.has("vibrationEnabled"))
                         obj.optBoolean("vibrationEnabled") else false,

@@ -26,6 +26,8 @@ data class EventConfig(
     val presetId: String = "",
     val notificationEnabled: Boolean = true,
     val minIntervalMinutes: Int = 10,
+    /** 优先级（1-10，数字越大越高） */
+    val priority: Int = 5,
     /** 通知时是否震动（默认关闭） */
     val vibrationEnabled: Boolean = false,
     /** 通知时是否播放系统通知音效（默认关闭） */

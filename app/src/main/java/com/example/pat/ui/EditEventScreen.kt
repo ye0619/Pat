@@ -1,8 +1,5 @@
 package com.example.pat.ui
 
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,10 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.pat.data.PresetRepository
@@ -56,8 +51,7 @@ fun EditEventScreen(
     var showHeadsUp by remember { mutableStateOf(config.showHeadsUp) }
     var lockScreenPublic by remember { mutableStateOf(config.lockScreenPublic) }
     var minIntervalMinutes by remember { mutableFloatStateOf(config.minIntervalMinutes.toFloat()) }
-    var customText by remember { mutableStateOf(config.customText) }
-    var customAudioPath by remember { mutableStateOf(config.customAudioPath) }
+    var priority by remember { mutableFloatStateOf(5f) }
 
     // ── 可用预设列表 ──
     val availablePresets = remember {
@@ -74,21 +68,6 @@ fun EditEventScreen(
         EventType.SCREEN_LONG_USAGE -> "分钟"
         EventType.LOW_BATTERY -> "%"
         else -> ""
-    }
-
-    val context = LocalContext.current
-    val audioFilePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val fileName = "custom_audio_${System.currentTimeMillis()}.audio"
-                val outputFile = java.io.File(context.filesDir, fileName)
-                inputStream?.use { input -> outputFile.outputStream().use { output -> input.copyTo(output) } }
-                customAudioPath = outputFile.absolutePath
-            } catch (_: Exception) {}
-        }
     }
 
     Column(
@@ -243,40 +222,11 @@ fun EditEventScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // ── 自定义反馈文本/音频（覆盖预设） ──
-        Text(
-            text = "自定义反馈（可选，覆盖预设）",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        OutlinedTextField(
-            value = customText,
-            onValueChange = { customText = it },
-            label = { Text("反馈文本") },
-            placeholder = { Text(EventConfig.defaultText(config.eventType)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = { audioFilePicker.launch("audio/*") },
-                modifier = Modifier.weight(1f)
-            ) { Text("选择音频", style = MaterialTheme.typography.labelMedium) }
-            if (customAudioPath.isNotBlank()) {
-                TextButton(onClick = { customAudioPath = "" }) { Text("清除音频") }
-            }
-        }
-        if (customAudioPath.isNotBlank()) {
-            Text(
-                text = "已选: ${customAudioPath.takeLast(35)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-        }
-        Spacer(modifier = Modifier.height(16.dp))
+        // ── 优先级 ──
+        Text("优先级: ${priority.toInt()}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        Slider(value = priority, onValueChange = { priority = it },
+            valueRange = 1f..10f, steps = 8, modifier = Modifier.fillMaxWidth())
+        Spacer(modifier = Modifier.height(12.dp))
 
         // ── 通知设置 ──
         Text(
@@ -380,8 +330,6 @@ fun EditEventScreen(
                         soundEnabled = soundEnabled,
                         showHeadsUp = showHeadsUp,
                         lockScreenPublic = lockScreenPublic,
-                        customText = customText,
-                        customAudioPath = customAudioPath,
                         minIntervalMinutes = minIntervalMinutes.toInt()
                     )
                 )
