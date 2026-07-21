@@ -22,5 +22,8 @@ enum class EventType {
     LOW_BATTERY,
 
     /** 摇晃手机 —— 加速度计检测到摇晃 */
-    SHAKE
+    SHAKE,
+
+    /** 撞击/拍击 —— 加速度计检测到瞬时高加速度 */
+    IMPACT
 }

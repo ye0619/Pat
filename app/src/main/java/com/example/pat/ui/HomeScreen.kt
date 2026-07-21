@@ -32,6 +32,7 @@ fun HomeScreen(
     todayTriggerCount: Int,
     recentTriggers: List<RecentTrigger>,
     onNavigateToEventList: () -> Unit,
+    onNavigateToPresetTest: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -151,6 +152,20 @@ fun HomeScreen(
         ) {
             Text(
                 text = "事件管理",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // ── 预设测试入口 ──
+        OutlinedButton(
+            onClick = onNavigateToPresetTest,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = "预设测试",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(vertical = 4.dp)
             )

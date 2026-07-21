@@ -35,6 +35,7 @@ data class EventConfig(
             EventType.LOW_BATTERY -> 20          // 20%
             EventType.CHARGE_START -> 0
             EventType.SHAKE -> 0
+            EventType.IMPACT -> 0
         }
 
         /** 默认反馈文本 */
@@ -43,6 +44,7 @@ data class EventConfig(
             EventType.CHARGE_START -> "谢谢给我补充能量"
             EventType.LOW_BATTERY -> "我要没电啦"
             EventType.SHAKE -> "别摇我"
+            EventType.IMPACT -> "好痛！轻一点"
         }
 
         /** 事件类型的可读中文名 */
@@ -51,6 +53,7 @@ data class EventConfig(
             EventType.CHARGE_START -> "开始充电"
             EventType.LOW_BATTERY -> "电量低"
             EventType.SHAKE -> "摇晃手机"
+            EventType.IMPACT -> "撞击"
         }
     }
 }

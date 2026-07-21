@@ -25,6 +25,8 @@ import com.example.pat.event.EventBus
 import com.example.pat.event.EventType
 import com.example.pat.event.SensorDataBus
 import com.example.pat.monitor.DeviceStateMonitor
+import com.example.pat.preset.PresetLoader
+import com.example.pat.preset.PresetRepository
 import com.example.pat.response.ResponseManager
 import com.example.pat.sensor.AccelData
 import com.example.pat.sensor.MotionSensorManager
@@ -77,10 +79,15 @@ class CompanionForegroundService : Service() {
 
     // ── 配置与引擎 ──
     private lateinit var preferenceManager: PreferenceManager
+    private lateinit var presetRepository: PresetRepository
     private lateinit var ruleEngine: RuleEngine
     private lateinit var responseManager: ResponseManager
     lateinit var eventDispatcher: EventDispatcher
         private set
+
+    /** 公开预设仓库，供 UI 层查询预设列表 */
+    val presetRepo: PresetRepository
+        get() = presetRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var deviceEventForwardJob: Job? = null
@@ -99,14 +106,18 @@ class CompanionForegroundService : Service() {
         // 初始化配置
         preferenceManager = PreferenceManager(this)
 
+        // 初始化预设系统
+        val presetLoader = PresetLoader(this)
+        presetRepository = PresetRepository(presetLoader)
+
         // 初始化设备状态监控器
         deviceStateMonitor = DeviceStateMonitor(this, serviceScope)
 
         // 初始化传感器管理器
         sensorManager = MotionSensorManager(this)
 
-        // 初始化响应系统
-        responseManager = ResponseManager(this)
+        // 初始化响应系统（接入预设仓库）
+        responseManager = ResponseManager(this, presetRepository)
 
         // 初始化规则引擎
         ruleEngine = RuleEngine(preferenceManager)

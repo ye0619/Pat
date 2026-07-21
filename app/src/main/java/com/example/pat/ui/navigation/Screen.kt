@@ -18,4 +18,7 @@ sealed class Screen {
 
     /** 编辑页 —— 编辑单个事件的配置 */
     data class EditEvent(val eventType: EventType) : Screen()
+
+    /** 预设测试页 —— 查看和试听所有内置预设 */
+    data object PresetTest : Screen()
 }

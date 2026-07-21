@@ -55,8 +55,8 @@ class RuleEngine(
             is DeviceEvent.ChargeStart -> EventType.CHARGE_START
             is DeviceEvent.LowBattery -> EventType.LOW_BATTERY
             is DeviceEvent.Shake -> EventType.SHAKE
+            is DeviceEvent.Impact -> EventType.IMPACT
             // 以下事件类型暂不作为可配置反馈事件
-            is DeviceEvent.Impact,
             is DeviceEvent.Drop,
             is DeviceEvent.ScreenWake,
             is DeviceEvent.ScreenOff,
@@ -80,7 +80,8 @@ class RuleEngine(
                 true
             }
             EventType.CHARGE_START,
-            EventType.SHAKE -> true // 无阈值
+            EventType.SHAKE,
+            EventType.IMPACT -> true // 无阈值
         }
     }
 }
