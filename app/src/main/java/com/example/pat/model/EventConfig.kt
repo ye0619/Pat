@@ -33,8 +33,19 @@ data class EventConfig(
     /** 是否以 Heads-up 横幅显示（关闭则仅静默出现在通知栏） */
     val showHeadsUp: Boolean = true,
     /** 锁屏时是否显示通知内容（关闭则锁屏仅显示图标） */
-    val lockScreenPublic: Boolean = true
+    val lockScreenPublic: Boolean = true,
+    /** 用户自定义反馈文本（覆盖预设，空则使用预设文本） */
+    val customText: String = "",
+    /** 用户自定义反馈音频路径（覆盖预设，空则使用预设音频） */
+    val customAudioPath: String = ""
 ) {
+    /** 有效反馈文本：用户自定义 > 预设 > 默认 */
+    fun effectiveText(preset: ReactionPreset?): String =
+        customText.ifBlank { preset?.text ?: defaultText(eventType) }
+
+    /** 有效音频路径：用户自定义 > 预设 */
+    fun effectiveAudioPath(preset: ReactionPreset?): String =
+        customAudioPath.ifBlank { preset?.audioAssetPath ?: "" }
     companion object {
 
         /** 默认阈值 */

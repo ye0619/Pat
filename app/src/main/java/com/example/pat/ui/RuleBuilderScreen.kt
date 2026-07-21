@@ -1,6 +1,8 @@
 package com.example.pat.ui
 
+import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -47,6 +49,11 @@ fun RuleBuilderScreen(
     var minIntervalMinutes by remember { mutableFloatStateOf((existingRule?.minIntervalMinutes ?: 10).toFloat()) }
     var reactionText by remember { mutableStateOf(existingRule?.reactionText ?: "") }
     var reactionAudioPath by remember { mutableStateOf(existingRule?.reactionAudioPath ?: "") }
+    var notifEnabled by remember { mutableStateOf(existingRule?.notificationEnabled ?: true) }
+    var vibrateEnabled by remember { mutableStateOf(existingRule?.vibrationEnabled ?: false) }
+    var sndEnabled by remember { mutableStateOf(existingRule?.soundEnabled ?: false) }
+    var headsUp by remember { mutableStateOf(existingRule?.showHeadsUp ?: true) }
+    var lockScreen by remember { mutableStateOf(existingRule?.lockScreenPublic ?: true) }
 
     // 文件选择器
     val audioFilePicker = rememberLauncherForActivityResult(
@@ -208,6 +215,21 @@ fun RuleBuilderScreen(
             )
         }
 
+        Spacer(Modifier.height(12.dp))
+
+        // ── 通知设置 ──
+        Text("通知设置", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(8.dp)) {
+                SwitchRow("通知总开关", notifEnabled) { notifEnabled = it }
+                SwitchRow("弹窗横幅", headsUp, notifEnabled) { headsUp = it }
+                SwitchRow("播放声音", sndEnabled, notifEnabled) { sndEnabled = it }
+                SwitchRow("开启震动", vibrateEnabled, notifEnabled) { vibrateEnabled = it }
+                SwitchRow("锁屏显示", lockScreen, notifEnabled) { lockScreen = it }
+            }
+        }
+
         Spacer(Modifier.height(20.dp))
 
         Button(
@@ -218,6 +240,8 @@ fun RuleBuilderScreen(
                     timeWindowMs = (timeWindowSec * 1000).toLong(), priority = priority.toInt(),
                     enabled = existingRule?.enabled ?: true,
                     reactionText = reactionText, reactionAudioPath = reactionAudioPath,
+                    notificationEnabled = notifEnabled, vibrationEnabled = vibrateEnabled,
+                    soundEnabled = sndEnabled, showHeadsUp = headsUp, lockScreenPublic = lockScreen,
                     minIntervalMinutes = minIntervalMinutes.toInt()
                 ))
             },
@@ -237,6 +261,7 @@ private fun ConditionRow(
     onRemove: () -> Unit,
     canRemove: Boolean
 ) {
+    val context = LocalContext.current
     val showCount = clause.eventType.supportsCount
     val showTimeRange = clause.eventType.supportsTimeRange
     val showValue = clause.eventType.hasValue
@@ -288,6 +313,9 @@ private fun ConditionRow(
                                             clause.copy(eventType = type)
                                     )
                                     typeExpanded = false
+                                    if (type.requiresAccessibility) {
+                                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                                    }
                                 }
                             )
                         }
@@ -387,6 +415,14 @@ private fun ConditionRow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SwitchRow(label: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Switch(checked = checked && enabled, onCheckedChange = { if (enabled) onChange(it) }, enabled = enabled)
     }
 }
 

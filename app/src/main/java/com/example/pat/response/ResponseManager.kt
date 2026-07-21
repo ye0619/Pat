@@ -68,15 +68,15 @@ class ResponseManager(
     private fun executeInternal(config: EventConfig): String {
         Log.i(TAG, "Executing response for: ${config.eventType.name} (presetId=${config.presetId})")
 
-        // ── 统一解析一个预设（保证文本与音频来源一致） ──
+        // ── 解析预设（用户自定义优先） ──
         val preset: ReactionPreset? = resolvePreset(config)
             ?: presetRepository.getRandom(config.eventType)
 
-        // 文本和音频都来自同一个 preset
-        val displayText = preset?.text
-            ?: EventConfig.defaultText(config.eventType)
+        // 文本：用户自定义 > 预设 > 默认
+        val displayText = config.effectiveText(preset)
 
-        val audioPath = preset?.audioAssetPath ?: ""
+        // 音频：用户自定义 > 预设
+        val audioPath = config.effectiveAudioPath(preset)
         val audioType = preset?.audioType ?: AudioType.PRESET
 
         // 1. 通知反馈（Heads-up + 声音 + 震动，全部由用户偏好控制）

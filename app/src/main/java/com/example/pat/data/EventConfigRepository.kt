@@ -115,6 +115,8 @@ class EventConfigRepository(
                 put("soundEnabled", config.soundEnabled)
                 put("showHeadsUp", config.showHeadsUp)
                 put("lockScreenPublic", config.lockScreenPublic)
+                put("customText", config.customText)
+                put("customAudioPath", config.customAudioPath)
             })
         }
         return array.toString()
@@ -147,7 +149,9 @@ class EventConfigRepository(
                     showHeadsUp = if (obj.has("showHeadsUp"))
                         obj.optBoolean("showHeadsUp") else true,
                     lockScreenPublic = if (obj.has("lockScreenPublic"))
-                        obj.optBoolean("lockScreenPublic") else true
+                        obj.optBoolean("lockScreenPublic") else true,
+                    customText = obj.optString("customText", ""),
+                    customAudioPath = obj.optString("customAudioPath", "")
                 )
             )
         }

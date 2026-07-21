@@ -310,7 +310,10 @@ private fun RecentTriggerRow(trigger: RecentTrigger) {
  */
 @Composable
 private fun NotificationGuideCard(context: android.content.Context) {
-    var visible by remember { mutableStateOf(true) }
+    val prefs = remember { context.getSharedPreferences("motionpet_ui_state", android.content.Context.MODE_PRIVATE) }
+    var visible by remember {
+        mutableStateOf(!prefs.getBoolean("notification_guide_dismissed", false))
+    }
 
     if (!visible) return
 
@@ -332,7 +335,10 @@ private fun NotificationGuideCard(context: android.content.Context) {
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = { visible = false }) {
+                TextButton(onClick = {
+                    visible = false
+                    prefs.edit().putBoolean("notification_guide_dismissed", true).apply()
+                }) {
                     Text("✕", color = MaterialTheme.colorScheme.onTertiaryContainer)
                 }
             }
