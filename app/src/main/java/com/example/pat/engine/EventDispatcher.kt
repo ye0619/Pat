@@ -1,7 +1,6 @@
 package com.example.pat.engine
 
 import android.util.Log
-import com.example.pat.data.PresetRepository
 import com.example.pat.event.DeviceEvent
 import com.example.pat.event.EventBus
 import com.example.pat.event.toDisplayLabel
@@ -24,7 +23,6 @@ import kotlinx.coroutines.launch
 class EventDispatcher(
     private val ruleEngine: RuleEngine,
     private val responseManager: ResponseManager,
-    private val presetRepository: PresetRepository,
     private val scope: CoroutineScope
 ) {
     /** 记录每个事件类型最后一次触发的挂钟时间 */
@@ -91,29 +89,23 @@ class EventDispatcher(
             return
         }
 
-        // ── 更新冷却时间 ──
+        // ── 执行反馈（返回实际使用的文本） ──
+        val actualText = responseManager.execute(config) ?: return
+
+        // ── 执行成功 → 更新冷却 + 记录 ──
         lastTriggerTime[eventKey] = now
-
-        // ── 增加计数 + 记录 ──
         todayTriggerCount++
-
-        val displayText = presetRepository.getById(config.presetId)?.text
-            ?: presetRepository.getRandom(config.eventType)?.text
-            ?: EventConfig.defaultText(config.eventType)
 
         _recentTriggers.add(0, RecentTrigger(
             eventTypeName = EventConfig.displayName(config.eventType),
-            displayText = displayText,
+            displayText = actualText,
             timestamp = now
         ))
         if (_recentTriggers.size > 20) {
             _recentTriggers.removeAt(_recentTriggers.lastIndex)
         }
 
-        Log.i(TAG, "Rule matched: ${config.eventType.name} → \"$displayText\" (interval=${config.minIntervalMinutes}min)")
-
-        // ── 执行反馈 ──
-        responseManager.execute(config)
+        Log.i(TAG, "Rule matched: ${config.eventType.name} → \"$actualText\" (interval=${config.minIntervalMinutes}min)")
     }
 
     companion object {

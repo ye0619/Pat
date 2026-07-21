@@ -119,7 +119,7 @@ class CompanionForegroundService : Service() {
         ruleEngine = RuleEngine(configRepository)
 
         // 初始化事件分发器
-        eventDispatcher = EventDispatcher(ruleEngine, responseManager, presetRepository, serviceScope)
+        eventDispatcher = EventDispatcher(ruleEngine, responseManager, serviceScope)
 
         // 注册传感器检测管道
         registerSensorPipeline()

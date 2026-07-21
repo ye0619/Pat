@@ -41,22 +41,21 @@ class ResponseManager(
      * 3. 仍无预设时使用系统默认文本（无音频）
      *
      * @param config 匹配的事件规则
-     * @return 是否实际执行了反馈（被全局锁阻止时返回 false）
+     * @return 实际使用的反馈文本，被全局锁阻止时返回 null
      */
-    fun execute(config: EventConfig): Boolean {
+    fun execute(config: EventConfig): String? {
         // ── 全局互斥检查 ──
         if (isExecuting) {
             Log.i(TAG, "Another event is being processed — skipping ${config.eventType.name}")
-            return false
+            return null
         }
         synchronized(this) {
-            if (isExecuting) return false
+            if (isExecuting) return null
             isExecuting = true
         }
 
         try {
-            executeInternal(config)
-            return true
+            return executeInternal(config)
         } finally {
             isExecuting = false
         }
@@ -64,8 +63,9 @@ class ResponseManager(
 
     /**
      * 内部执行逻辑 —— 文本和音频始终来自同一个预设。
+     * @return 实际使用的反馈文本
      */
-    private fun executeInternal(config: EventConfig) {
+    private fun executeInternal(config: EventConfig): String {
         Log.i(TAG, "Executing response for: ${config.eventType.name} (presetId=${config.presetId})")
 
         // ── 统一解析一个预设（保证文本与音频来源一致） ──
@@ -97,6 +97,7 @@ class ResponseManager(
         }
 
         Log.i(TAG, "Response executed: text=\"$displayText\" audio=\"$audioPath\"")
+        return displayText
     }
 
     /**

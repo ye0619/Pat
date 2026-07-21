@@ -5,7 +5,6 @@ import android.util.Log
 import com.example.pat.event.EventType
 import com.example.pat.model.AudioType
 import com.example.pat.model.ReactionPreset
-import java.util.UUID
 
 /**
  * 预设加载器 —— 从 assets/ 中扫描并解析内置预设音频文件。
@@ -60,7 +59,7 @@ class PresetLoader(
                     if (eventType != null) {
                         presets.add(
                             ReactionPreset(
-                                id = UUID.randomUUID().toString(),
+                                id = buildPresetId(eventType, fileName),
                                 name = ReactionPreset.nameFromText(displayText),
                                 text = displayText,
                                 audioAssetPath = fileName,
@@ -92,6 +91,14 @@ class PresetLoader(
         val eventName = match.groupValues[1]
         val displayText = match.groupValues[2]
         return Pair(eventName, displayText)
+    }
+
+    /**
+     * 生成稳定的预设 ID —— 基于事件类型和文件名哈希。
+     * 同一音频文件在任何时候加载都会得到相同的 ID。
+     */
+    private fun buildPresetId(eventType: EventType, fileName: String): String {
+        return "builtin_${eventType.name}_${fileName.hashCode().toUInt()}"
     }
 
     companion object {
