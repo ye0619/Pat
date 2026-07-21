@@ -28,15 +28,20 @@ data class AccelData(
 
         /**
          * 静止状态下 magnitude 的合理下限。
-         * 手持手机时微动会偏离纯重力值，7.5 覆盖正常手持场景。
+         *
+         * v2: 从 7.5 提高到 9.0，排除"手持移动中"被误判为静止。
+         *     9.0 ≈ 0.92g — 桌面静止约 9.8，手持微动约 9.0-10.5。
          */
-        const val STILL_LOWER_BOUND: Float = 7.5f
+        const val STILL_LOWER_BOUND: Float = 9.0f
 
         /**
          * 静止状态下 magnitude 的合理上限。
-         * 12.5 ≈ 1.27g，排除故意摇晃但允许手持微动。
+         *
+         * v2: 从 12.5 降低到 10.8，收窄范围避免微动被当作静止。
+         *     10.8 ≈ 1.10g — 手持微动上限。
+         *     超过此值说明设备在明显移动中，不应判定为"静止"。
          */
-        const val STILL_UPPER_BOUND: Float = 12.5f
+        const val STILL_UPPER_BOUND: Float = 10.8f
     }
 }
 

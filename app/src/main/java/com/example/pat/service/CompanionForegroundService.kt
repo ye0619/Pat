@@ -7,8 +7,11 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import com.example.pat.CompanionForegroundServiceHolder
 import com.example.pat.MainActivity
@@ -20,53 +23,53 @@ import com.example.pat.detector.DropResult
 import com.example.pat.detector.ImpactDetector
 import com.example.pat.detector.ImpactResult
 import com.example.pat.detector.ShakeDetector
-import com.example.pat.engine.EventDispatcher
-import com.example.pat.engine.RuleEngine
+import com.example.pat.engine.DeviceStateProvider
+import com.example.pat.engine.PriorityResolver
 import com.example.pat.engine.RuleEngineV2
 import com.example.pat.event.AtomicEvent
 import com.example.pat.event.AtomicEventBus
-import com.example.pat.event.DeviceEvent
 import com.example.pat.event.EventBus
-import com.example.pat.event.EventType
 import com.example.pat.event.SensorDataBus
+import com.example.pat.event.EventType
 import com.example.pat.model.EventConfig
+import com.example.pat.model.ReactionItem
 import com.example.pat.monitor.DeviceStateMonitor
-import com.example.pat.model.UserRule
 import com.example.pat.response.ResponseManager
 import com.example.pat.sensor.AccelData
 import com.example.pat.sensor.MotionSensorManager
 import com.example.pat.sensor.SensorCallback
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
  * MotionPet 前台服务 —— 事件监测与反馈的总入口。
  *
- * 架构（v2）：
+ * v3 架构（统一管道）：
  * ```
  * CompanionForegroundService
  *   │
  *   ├── DeviceStateMonitor（Screen + Battery）
- *   │     └── EventBus
+ *   │     └── AtomicEventBus（唯一事件总线）
  *   │
  *   ├── Sensor Pipeline（加速度计 → Detectors）
- *   │     └── EventBus
+ *   │     └── AtomicEventBus（统一发射）
  *   │
- *   ├── EventDispatcher（从 EventBus 收集）
- *   │     └── RuleEngine（匹配 EventConfig）
- *   │           └── ResponseManager
- *   │                 ├── EventConfig.presetId → PresetRepository.getById()
- *   │                 ├── ReactionPreset.text → NotificationService
- *   │                 └── ReactionPreset.audioAssetPath → AudioPlayer / VoiceService
+ *   ├── RuleEngineV2（统一规则引擎）
+ *   │     ├── EventConfig（基础事件 → 隐式规则）
+ *   │     ├── UserRule（自定义规则 → 显式规则）
+ *   │     └── PriorityResolver → 全局优先级排序
+ *   │           └── onRuleMatched → ResponseManager（统一反馈）
  *   │
  *   └── 前台通知（常驻）
  * ```
+ *
+ * 废弃组件（保留但不再使用）：
+ * - EventDispatcher（旧管道分发器）
+ * - RuleEngine（旧版 1:1 规则引擎）
+ * - EventBus（DeviceEvent 旧总线，仅保留用于 UI 日志）
  */
 class CompanionForegroundService : Service() {
 
@@ -84,14 +87,10 @@ class CompanionForegroundService : Service() {
     private lateinit var configRepository: EventConfigRepository
     private lateinit var userRuleRepository: UserRuleRepository
 
-    // ── 引擎 ──
-    private lateinit var ruleEngine: RuleEngine
-    /** 新规则引擎 v2（用户自定义组合规则） */
+    // ── 引擎（v3 统一） ──
     lateinit var ruleEngineV2: RuleEngineV2
         private set
     lateinit var responseManager: ResponseManager
-        private set
-    lateinit var eventDispatcher: EventDispatcher
         private set
 
     /** 公开仓库供 UI 层查询 */
@@ -99,8 +98,9 @@ class CompanionForegroundService : Service() {
     val configRepo: EventConfigRepository get() = configRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var deviceEventForwardJob: Job? = null
-    private var longUsageCheckJob: Job? = null
+
+    // 旧组件引用（保留兼容，不再主动启动）
+    // EventDispatcher 和 RuleEngine 不再使用
 
     // ══════════════════════════════════════════════════════════════
     // 生命周期
@@ -108,7 +108,7 @@ class CompanionForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.i(TAG, "╔══ MotionPet Service onCreate ══╗")
+        Log.i(TAG, "╔══ MotionPet Service onCreate (v3 unified pipeline) ══╗")
 
         createNotificationChannel()
 
@@ -131,27 +131,25 @@ class CompanionForegroundService : Service() {
         // 初始化响应系统
         responseManager = ResponseManager(this, presetRepository)
 
-        // 初始化规则引擎
-        ruleEngine = RuleEngine(configRepository)
-
-        // 初始化事件分发器
-        eventDispatcher = EventDispatcher(ruleEngine, responseManager, serviceScope)
-
-        // 初始化新规则引擎 v2（用户自定义组合规则）
-        ruleEngineV2 = RuleEngineV2(userRuleRepository, scope = serviceScope)
-        ruleEngineV2.onRuleMatched = { rule ->
-            Log.i(TAG, "RuleEngineV2 matched: \"${rule.name}\" — executing reaction")
-            // 使用 EventBus 桥接：将匹配的规则转为 DeviceEvent 触发反馈
-            // 规则自带 reactionText + reactionAudioPath，由 executeRuleReaction 处理
-            executeRuleReaction(rule)
+        // 初始化统一规则引擎（v3：基础事件 + 自定义规则）
+        val stateProvider = ServiceDeviceStateProvider(this)
+        ruleEngineV2 = RuleEngineV2(
+            configRepository = configRepository,
+            ruleRepository = userRuleRepository,
+            scope = serviceScope,
+            stateProvider = stateProvider
+        )
+        ruleEngineV2.onRuleMatched = { matchedRule ->
+            Log.i(TAG, "Rule matched: \"${matchedRule.displayName}\" (priority=${matchedRule.priority})")
+            executeReaction(matchedRule)
         }
 
-        // 注册传感器检测管道
+        // 注册传感器检测管道（只向 AtomicEventBus 发射）
         registerSensorPipeline()
 
         CompanionForegroundServiceHolder.instance = this
 
-        Log.i(TAG, "All components initialized")
+        Log.i(TAG, "All components initialized (v3 unified)")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -174,12 +172,9 @@ class CompanionForegroundService : Service() {
 
         deviceStateMonitor.start()
         startSensors()
-        startDeviceEventForwarding()
-        eventDispatcher.start()
-        ruleEngineV2.start()
-        startLongUsageCheck()
+        ruleEngineV2.start()  // v3: 统一引擎处理所有规则
 
-        Log.i(TAG, "══ MotionPet fully started ══")
+        Log.i(TAG, "══ MotionPet fully started (v3 unified) ══")
         return START_STICKY
     }
 
@@ -187,10 +182,7 @@ class CompanionForegroundService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "╚══ MotionPet Service onDestroy ══╝")
-        eventDispatcher.stop()
         ruleEngineV2.stop()
-        longUsageCheckJob?.cancel(); longUsageCheckJob = null
-        deviceEventForwardJob?.cancel(); deviceEventForwardJob = null
         deviceStateMonitor.stop()
         sensorManager.stopListening(); sensorManager.release()
         SensorDataBus.setRunning(false)
@@ -200,7 +192,7 @@ class CompanionForegroundService : Service() {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 传感器管道
+    // 传感器管道（只向 AtomicEventBus 发射）
     // ══════════════════════════════════════════════════════════════
 
     private fun startSensors() {
@@ -224,21 +216,22 @@ class CompanionForegroundService : Service() {
                 // 跌落检测优先，避免跌落冲击被误判为撞击
                 val drop = dropDetector.process(data)
                 if (drop is DropResult.Detected) {
-                    EventBus.tryEmit(DeviceEvent.Drop(drop.impactForce))
                     AtomicEventBus.tryEmit(AtomicEvent.Drop(now, drop.impactForce))
+                    // 旧总线保留（UI 日志用）
+                    EventBus.tryEmit(com.example.pat.event.DeviceEvent.Drop(drop.impactForce))
                     return
                 }
 
                 val impact = impactDetector.process(data)
                 if (impact is ImpactResult.Detected) {
-                    EventBus.tryEmit(DeviceEvent.Impact(impact.intensity))
                     AtomicEventBus.tryEmit(AtomicEvent.Impact(now, impact.intensity))
+                    EventBus.tryEmit(com.example.pat.event.DeviceEvent.Impact(impact.intensity))
                 }
 
                 val shake = shakeDetector.process(data)
                 if (shake) {
-                    EventBus.tryEmit(DeviceEvent.Shake)
                     AtomicEventBus.tryEmit(AtomicEvent.Shake(now))
+                    EventBus.tryEmit(com.example.pat.event.DeviceEvent.Shake)
                 }
             }
             override fun onAccuracyChanged(sensorType: Int, accuracy: Int) {
@@ -247,55 +240,50 @@ class CompanionForegroundService : Service() {
         })
     }
 
+    // ══════════════════════════════════════════════════════════════
+    // 统一反馈执行
+    // ══════════════════════════════════════════════════════════════
+
     /**
-     * 执行用户自定义规则的反馈。
-     * 桥接 UserRule → 现有 ResponseManager + NotificationService。
-     * 优先使用规则自带的 reactionText/reactionAudioPath。
+     * 执行规则匹配后的反馈。
+     * v3: 统一通过 ResponseManager 执行，享受全局互斥锁保护。
      */
-    private fun executeRuleReaction(rule: UserRule) {
-        val displayText = rule.reactionText.ifBlank { "\"${rule.name}\" 已触发" }
-
-        // 通知
-        if (rule.notificationEnabled && displayText.isNotBlank()) {
-            val ns = com.example.pat.response.NotificationService(this)
-            ns.show(
-                title = "Pat",
-                text = displayText,
-                enableSound = rule.soundEnabled,
-                enableVibration = rule.vibrationEnabled,
-                showHeadsUp = rule.showHeadsUp,
-                lockScreenPublic = rule.lockScreenPublic
-            )
-            Log.i(TAG, "Rule reaction: \"${rule.name}\" → \"$displayText\"")
-        }
-
-        // 音频
-        val audioPath = rule.reactionAudioPath
-        if (audioPath.isNotBlank()) {
-            if (audioPath.startsWith("/") || audioPath.startsWith(filesDir.absolutePath)) {
-                com.example.pat.response.VoiceService(this).play(audioPath)
-            } else {
-                com.example.pat.audio.AudioPlayer(this).playAsset(audioPath)
-            }
+    private fun executeReaction(matchedRule: PriorityResolver.MatchedRule) {
+        val displayText = responseManager.execute(
+            reactions = matchedRule.reactions,
+            notification = matchedRule.notification
+        )
+        if (displayText != null) {
+            Log.i(TAG, "Reaction executed: \"${matchedRule.displayName}\" → \"$displayText\"")
+        } else {
+            Log.d(TAG, "Reaction skipped (busy or empty): \"${matchedRule.displayName}\"")
         }
     }
 
-    private fun startDeviceEventForwarding() {
-        deviceEventForwardJob?.cancel()
-        deviceEventForwardJob = serviceScope.launch {
-            deviceStateMonitor.events.collect { EventBus.tryEmit(it) }
-        }
-    }
+    // ══════════════════════════════════════════════════════════════
+    // DeviceStateProvider 实现
+    // ══════════════════════════════════════════════════════════════
 
-    private fun startLongUsageCheck() {
-        longUsageCheckJob?.cancel()
-        longUsageCheckJob = serviceScope.launch {
-            while (isActive) {
-                delay(60_000L)
-                val thresholdMin = configRepository.getByEventType(EventType.SCREEN_LONG_USAGE)?.threshold ?: 120
-                deviceStateMonitor.screenMonitor.checkLongUsage(thresholdMin)
+    /**
+     * 服务级设备状态提供者 —— 供 [ConditionEvaluator] 查询实时设备状态。
+     */
+    private class ServiceDeviceStateProvider(
+        private val context: Context
+    ) : DeviceStateProvider {
+        override val isScreenOn: Boolean
+            get() {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                return pm.isInteractive
             }
-        }
+
+        override val isCharging: Boolean
+            get() {
+                val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+                val intent = context.registerReceiver(null, filter)
+                val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+                return status == BatteryManager.BATTERY_STATUS_CHARGING
+                        || status == BatteryManager.BATTERY_STATUS_FULL
+            }
     }
 
     // ══════════════════════════════════════════════════════════════

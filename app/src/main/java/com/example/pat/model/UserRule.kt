@@ -52,6 +52,8 @@ data class UserRule(
     val reactionText: String = "",
     /** 反馈音频路径（内置预设路径 或 用户上传文件路径） */
     val reactionAudioPath: String = "",
+    /** 反馈池 — 多文本/音频组合，触发时随机选择（v2 新增） */
+    val reactions: List<ReactionItem> = emptyList(),
     // ── 通知偏好（同 EventConfig） ──
     val notificationEnabled: Boolean = true,
     val vibrationEnabled: Boolean = false,
@@ -71,3 +73,14 @@ data class UserRule(
             else -> conditions.joinToString(" ${operator.name} ") { it.displayText }
         }
 }
+
+/**
+ * 从 UserRule 提取通知偏好。
+ */
+fun UserRule.toNotificationPreference(): NotificationPreference = NotificationPreference(
+    enabled = this.notificationEnabled,
+    vibration = this.vibrationEnabled,
+    sound = this.soundEnabled,
+    headsUp = this.showHeadsUp,
+    lockScreenPublic = this.lockScreenPublic
+)

@@ -14,11 +14,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.pat.audio.AudioPlaybackState
-import com.example.pat.engine.EventDispatcher.RecentTrigger
-import com.example.pat.event.EventType
+import com.example.pat.engine.RuleEngineV2.RecentTrigger
+import com.example.pat.event.AtomicEvent
+import com.example.pat.event.AtomicEventBus
 import com.example.pat.ui.theme.PatTheme
 import java.text.SimpleDateFormat
 import java.util.*
@@ -31,6 +31,7 @@ import java.util.*
  * - 今日触发次数
  * - 最近事件列表
  * - 进入事件管理页的入口
+ * - 音频播放器
  */
 @Composable
 fun HomeScreen(
@@ -38,7 +39,7 @@ fun HomeScreen(
     todayTriggerCount: Int,
     recentTriggers: List<RecentTrigger>,
     onNavigateToEventList: () -> Unit,
-    onTestEvent: ((EventType) -> Unit)? = null,
+    onTestAtomicEvent: ((AtomicEvent) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -112,7 +113,7 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(8.dp))
         }
 
-        // ── 通知设置引导（国内 ROM 常需手动开启悬浮通知） ──
+        // ── 通知设置引导 ──
         val context = LocalContext.current
         NotificationGuideCard(context = context)
 
@@ -186,8 +187,8 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ── 测试通知 ──
-        if (onTestEvent != null) {
+        // ── 测试通知（v3：使用 AtomicEvent） ──
+        if (onTestAtomicEvent != null) {
             var testExpanded by remember { mutableStateOf(false) }
 
             Card(
@@ -222,33 +223,35 @@ fun HomeScreen(
                     if (testExpanded) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "点击按钮直接触发事件通知，用于验证通知横幅、声音和震动是否正常。",
+                            text = "点击按钮直接向规则引擎发送测试事件，用于验证通知和反馈是否正常。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
+                        val now = System.currentTimeMillis()
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            TestButton("长时间使用", onClick = { onTestEvent(EventType.SCREEN_LONG_USAGE) })
-                            TestButton("充电", onClick = { onTestEvent(EventType.CHARGE_START) })
+                            TestButton("长时间使用") { onTestAtomicEvent(AtomicEvent.LongUsage(now, 999)) }
+                            TestButton("充电") { onTestAtomicEvent(AtomicEvent.ChargeStart(now)) }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            TestButton("低电量", onClick = { onTestEvent(EventType.LOW_BATTERY) })
-                            TestButton("摇晃", onClick = { onTestEvent(EventType.SHAKE) })
+                            TestButton("低电量") { onTestAtomicEvent(AtomicEvent.BatteryLevel(now, 15)) }
+                            TestButton("摇晃") { onTestAtomicEvent(AtomicEvent.Shake(now)) }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            TestButton("撞击", onClick = { onTestEvent(EventType.IMPACT) })
+                            TestButton("撞击") { onTestAtomicEvent(AtomicEvent.Impact(now, 30f)) }
+                            TestButton("点击") { onTestAtomicEvent(AtomicEvent.Click(now)) }
                         }
                     }
                 }
@@ -284,7 +287,7 @@ private fun RecentTriggerRow(trigger: RecentTrigger) {
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = trigger.eventTypeName,
+                text = trigger.displayName,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium
             )
@@ -306,7 +309,6 @@ private fun RecentTriggerRow(trigger: RecentTrigger) {
 
 /**
  * 通知设置引导卡片。
- * 提示用户检查是否开启了悬浮/横幅通知（国内 ROM 常默认关闭）。
  */
 @Composable
 private fun NotificationGuideCard(context: android.content.Context) {
@@ -385,21 +387,4 @@ private fun RowScope.TestButton(label: String, onClick: () -> Unit) {
 private fun formatTimestamp(timestamp: Long): String {
     val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
     return sdf.format(Date(timestamp))
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun HomeScreenPreview() {
-    PatTheme {
-        HomeScreen(
-            isServiceRunning = true,
-            todayTriggerCount = 3,
-            recentTriggers = listOf(
-                RecentTrigger("屏幕使用过久", "别看了，我想睡觉了", System.currentTimeMillis() - 300_000),
-                RecentTrigger("开始充电", "谢谢给我补充能量", System.currentTimeMillis() - 1_800_000),
-                RecentTrigger("摇晃手机", "别摇我", System.currentTimeMillis() - 3_600_000)
-            ),
-            onNavigateToEventList = {}
-        )
-    }
 }

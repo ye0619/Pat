@@ -22,8 +22,16 @@ import com.example.pat.data.PresetRepository
 import com.example.pat.event.AtomicEventType
 import com.example.pat.model.ConditionClause
 import com.example.pat.model.ConditionOperator
+import com.example.pat.model.ReactionItem
 import com.example.pat.model.UserRule
 
+/**
+ * 自定义规则编辑器 —— 创建/编辑用户自定义事件规则。
+ *
+ * v2 改进：
+ * - 多 ReactionItem 编辑（反馈池，触发时随机选择）
+ * - 条件编辑器增加 checkCurrentState 复选框（状态事件）
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RuleBuilderScreen(
@@ -47,20 +55,28 @@ fun RuleBuilderScreen(
     var timeWindowSec by remember { mutableFloatStateOf(((existingRule?.timeWindowMs ?: 10_000L) / 1000f)) }
     var priority by remember { mutableFloatStateOf((existingRule?.priority ?: 5).toFloat()) }
     var minIntervalMinutes by remember { mutableFloatStateOf((existingRule?.minIntervalMinutes ?: 10).toFloat()) }
-    var reactionText by remember { mutableStateOf(existingRule?.reactionText ?: "") }
-    var reactionAudioPath by remember { mutableStateOf(existingRule?.reactionAudioPath ?: "") }
     var notifEnabled by remember { mutableStateOf(existingRule?.notificationEnabled ?: true) }
     var vibrateEnabled by remember { mutableStateOf(existingRule?.vibrationEnabled ?: false) }
     var sndEnabled by remember { mutableStateOf(existingRule?.soundEnabled ?: false) }
     var headsUp by remember { mutableStateOf(existingRule?.showHeadsUp ?: true) }
     var lockScreen by remember { mutableStateOf(existingRule?.lockScreenPublic ?: true) }
 
+    // v2: 反应池
+    var reactions by remember {
+        mutableStateOf(
+            if (existingRule?.reactions?.isNotEmpty() == true) existingRule.reactions.toMutableList()
+            else mutableListOf(ReactionItem(
+                text = existingRule?.reactionText ?: "",
+                audioPath = existingRule?.reactionAudioPath ?: ""
+            ))
+        )
+    }
+
     // 文件选择器
     val audioFilePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            // 复制到应用内部存储
             try {
                 val inputStream = context.contentResolver.openInputStream(uri)
                 val fileName = "custom_audio_${System.currentTimeMillis()}.audio"
@@ -70,9 +86,15 @@ fun RuleBuilderScreen(
                         input.copyTo(output)
                     }
                 }
-                reactionAudioPath = outputFile.absolutePath
+                // 将路径填入最后一个有焦点的 reaction item
+                if (reactions.isNotEmpty()) {
+                    val lastIdx = reactions.lastIndex
+                    reactions = reactions.toMutableList().also {
+                        it[lastIdx] = it[lastIdx].copy(audioPath = outputFile.absolutePath)
+                    }
+                }
             } catch (e: Exception) {
-                // 失败时保留原路径
+                // 失败时忽略
             }
         }
     }
@@ -161,58 +183,87 @@ fun RuleBuilderScreen(
 
         Spacer(Modifier.height(12.dp))
 
-        // ── 反馈设置 ──
-        Text("反馈设置", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        // ── 反馈池（v2：多 ReactionItem） ──
+        Text("反馈内容池", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text(
+            text = "触发时随机选择一条。至少需要一条文本。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(4.dp))
 
-        OutlinedTextField(
-            value = reactionText, onValueChange = { reactionText = it },
-            label = { Text("反馈文本") }, placeholder = { Text("事件触发时显示的文字") },
-            singleLine = true, modifier = Modifier.fillMaxWidth()
-        )
+        reactions.forEachIndexed { index, item ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(Modifier.padding(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("反馈 #${index + 1}", style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        if (reactions.size > 1) {
+                            TextButton(onClick = {
+                                reactions = reactions.toMutableList().also { it.removeAt(index) }
+                            }) { Text("删除", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = item.text,
+                        onValueChange = { newText -> reactions = reactions.toMutableList().also { it[index] = it[index].copy(text = newText) } },
+                        label = { Text("文本") }, placeholder = { Text("触发时显示的文字") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                        textStyle = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = item.audioPath,
+                            onValueChange = { newPath -> reactions = reactions.toMutableList().also { it[index] = it[index].copy(audioPath = newPath) } },
+                            label = { Text("音频路径") }, placeholder = { Text("可选") },
+                            singleLine = true, modifier = Modifier.weight(1f),
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        OutlinedButton(
+                            onClick = { audioFilePicker.launch("audio/*") },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) { Text("选择", style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+        }
 
-        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = {
+            reactions = reactions.toMutableList().also { it.add(ReactionItem()) }
+        }) { Text("+ 添加反馈项") }
 
-        // 音频：上传文件 + 预设选择
-        Text("反馈音频", style = MaterialTheme.typography.labelLarge)
-        Spacer(Modifier.height(2.dp))
+        // 预设快速填充
+        var presetExpanded by remember { mutableStateOf(false) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = { audioFilePicker.launch("audio/*") },
-                modifier = Modifier.weight(1f)
-            ) { Text("选择音频文件", style = MaterialTheme.typography.labelMedium) }
-
-            var presetExpanded by remember { mutableStateOf(false) }
             Box(modifier = Modifier.weight(1f)) {
                 OutlinedButton(
                     onClick = { presetExpanded = true },
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("内置预设", style = MaterialTheme.typography.labelMedium) }
+                ) { Text("从预设填充", style = MaterialTheme.typography.labelMedium) }
                 DropdownMenu(presetExpanded, { presetExpanded = false }) {
                     DropdownMenuItem(
-                        text = { Text("无音频") },
-                        onClick = { reactionAudioPath = ""; presetExpanded = false }
+                        text = { Text("清空反馈池") },
+                        onClick = { reactions = mutableListOf(ReactionItem()); presetExpanded = false }
                     )
                     presetRepository.getAll().forEach { p ->
                         DropdownMenuItem(
                             text = { Text(p.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             onClick = {
-                                reactionAudioPath = p.audioAssetPath
-                                if (reactionText.isBlank()) reactionText = p.text
+                                reactions = mutableListOf(
+                                    ReactionItem(text = p.text, audioPath = p.audioAssetPath)
+                                )
                                 presetExpanded = false
                             }
                         )
                     }
                 }
             }
-        }
-        if (reactionAudioPath.isNotBlank()) {
-            Text(
-                text = "已选: ${reactionAudioPath.takeLast(40)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 4.dp)
-            )
         }
 
         Spacer(Modifier.height(12.dp))
@@ -239,21 +290,23 @@ fun RuleBuilderScreen(
                     conditions = conditions, operator = operator,
                     timeWindowMs = (timeWindowSec * 1000).toLong(), priority = priority.toInt(),
                     enabled = existingRule?.enabled ?: true,
-                    reactionText = reactionText, reactionAudioPath = reactionAudioPath,
+                    reactionText = reactions.firstOrNull()?.text ?: "",
+                    reactionAudioPath = reactions.firstOrNull()?.audioPath ?: "",
+                    reactions = reactions.filter { it.text.isNotBlank() || it.audioPath.isNotBlank() },
                     notificationEnabled = notifEnabled, vibrationEnabled = vibrateEnabled,
                     soundEnabled = sndEnabled, showHeadsUp = headsUp, lockScreenPublic = lockScreen,
                     minIntervalMinutes = minIntervalMinutes.toInt()
                 ))
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = name.isNotBlank() && conditions.isNotEmpty()
+            enabled = name.isNotBlank() && conditions.isNotEmpty() && reactions.any { it.text.isNotBlank() }
         ) { Text("保存规则", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 4.dp)) }
 
         Spacer(Modifier.height(32.dp))
     }
 }
 
-/** 单个条件编辑行 */
+/** 单个条件编辑行（v2：增加 checkCurrentState 复选框） */
 @Composable
 private fun ConditionRow(
     clause: ConditionClause,
@@ -265,6 +318,10 @@ private fun ConditionRow(
     val showCount = clause.eventType.supportsCount
     val showTimeRange = clause.eventType.supportsTimeRange
     val showValue = clause.eventType.hasValue
+    val isStateEvent = clause.eventType in listOf(
+        AtomicEventType.SCREEN_ON, AtomicEventType.SCREEN_OFF,
+        AtomicEventType.CHARGE_START, AtomicEventType.CHARGE_STOP
+    )
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -279,7 +336,6 @@ private fun ConditionRow(
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) { Text(clause.eventType.displayName, maxLines = 1, style = MaterialTheme.typography.bodySmall) }
                     DropdownMenu(typeExpanded, { typeExpanded = false }) {
-                        // 过滤：自定义规则中不显示 IMPACT（由 CLICK 替代）
                         AtomicEventType.entries
                             .filter { it != AtomicEventType.IMPACT }
                             .forEach { type ->
@@ -290,13 +346,13 @@ private fun ConditionRow(
                                             Text(type.displayName, style = MaterialTheme.typography.bodyMedium)
                                             if (type.requiresAccessibility) {
                                                 Spacer(Modifier.width(4.dp))
-                                                Text("不推荐", style = MaterialTheme.typography.labelSmall,
+                                                Text("⚠", style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.error)
                                             }
                                         }
                                         Text(
                                             if (type.requiresAccessibility)
-                                                "需在 设置→无障碍 中手动开启，影响性能"
+                                                "需在 设置→无障碍 中手动开启"
                                             else type.description,
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -304,13 +360,20 @@ private fun ConditionRow(
                                     }
                                 },
                                 onClick = {
+                                    val isNowStateEvent = type in listOf(
+                                        AtomicEventType.SCREEN_ON, AtomicEventType.SCREEN_OFF,
+                                        AtomicEventType.CHARGE_START, AtomicEventType.CHARGE_STOP
+                                    )
                                     onUpdate(
                                         if (type.supportsTimeRange)
                                             clause.copy(eventType = type, valueMin = 22, valueMax = 6)
                                         else if (type.hasValue)
                                             clause.copy(eventType = type, operator = ConditionClause.CompareOp.LESS_THAN, value = clause.value ?: 50)
                                         else
-                                            clause.copy(eventType = type)
+                                            clause.copy(
+                                                eventType = type,
+                                                checkCurrentState = isNowStateEvent  // 状态事件默认查询当前状态
+                                            )
                                     )
                                     typeExpanded = false
                                     if (type.requiresAccessibility) {
@@ -322,27 +385,19 @@ private fun ConditionRow(
                     }
                 }
 
-                // 次数输入（仅计数事件）
                 if (showCount) {
                     Spacer(Modifier.width(4.dp))
                     var countText by remember(clause.count) { mutableStateOf(clause.count.toString()) }
-                    var countError by remember { mutableStateOf(false) }
                     OutlinedTextField(
                         value = countText,
                         onValueChange = { s ->
                             val filtered = s.filter { it.isDigit() }
-                            if (filtered.isEmpty()) {
-                                countText = s
-                                countError = true
-                            } else {
+                            if (filtered.isNotEmpty()) {
                                 val v = filtered.toIntOrNull()?.coerceIn(1, 99) ?: 1
                                 countText = v.toString()
-                                countError = false
                                 onUpdate(clause.copy(count = v))
-                            }
+                            } else { countText = "" }
                         },
-                        isError = countError,
-                        supportingText = if (countError) {{ Text("请输入数字") }} else null,
                         modifier = Modifier.width(56.dp), singleLine = true,
                         label = { Text("次", style = MaterialTheme.typography.labelSmall) },
                         textStyle = MaterialTheme.typography.bodySmall,
@@ -410,6 +465,22 @@ private fun ConditionRow(
                             else -> ""
                         },
                         style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // v2: 状态事件 → 显示"查询当前状态"复选框
+            if (isStateEvent) {
+                Spacer(Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = clause.checkCurrentState,
+                        onCheckedChange = { onUpdate(clause.copy(checkCurrentState = it)) }
+                    )
+                    Text(
+                        "查询当前状态（而非过去事件）",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

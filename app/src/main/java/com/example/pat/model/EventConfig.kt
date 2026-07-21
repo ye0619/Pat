@@ -17,6 +17,8 @@ import com.example.pat.event.EventType
  * @property minIntervalMinutes 最小触发间隔（分钟）。同一事件在此时间内不会重复触发。
  *                              设为 0 表示无限制。默认为 10 分钟。
  *                              当某一事件正在播放音频时，其他事件也会被阻止。
+ * @property reactions 反馈池 — 支持多个文本/音频组合，触发时随机选择。
+ *                     如果为空，回退到 [customText] + [customAudioPath]。
  */
 data class EventConfig(
     val id: String = "",
@@ -39,7 +41,9 @@ data class EventConfig(
     /** 用户自定义反馈文本（覆盖预设，空则使用预设文本） */
     val customText: String = "",
     /** 用户自定义反馈音频路径（覆盖预设，空则使用预设音频） */
-    val customAudioPath: String = ""
+    val customAudioPath: String = "",
+    /** 反馈池 — 多文本/音频组合，触发时随机选择（v2 新增） */
+    val reactions: List<ReactionItem> = emptyList()
 ) {
     /** 有效反馈文本：用户自定义 > 预设 > 默认 */
     fun effectiveText(preset: ReactionPreset?): String =
@@ -78,3 +82,14 @@ data class EventConfig(
         }
     }
 }
+
+/**
+ * 从 EventConfig 提取通知偏好。
+ */
+fun EventConfig.toNotificationPreference(): NotificationPreference = NotificationPreference(
+    enabled = this.notificationEnabled,
+    vibration = this.vibrationEnabled,
+    sound = this.soundEnabled,
+    headsUp = this.showHeadsUp,
+    lockScreenPublic = this.lockScreenPublic
+)

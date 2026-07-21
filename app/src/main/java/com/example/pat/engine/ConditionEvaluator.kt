@@ -5,16 +5,32 @@ import com.example.pat.event.AtomicEventType
 import com.example.pat.model.ConditionClause
 
 /**
+ * 当前设备状态提供者 —— 用于 [ConditionEvaluator] 查询实时设备状态。
+ *
+ * 当 [ConditionClause.checkCurrentState] = true 且事件类型是状态事件时，
+ * 评估器通过此接口查询当前状态，而非查询事件历史缓冲区。
+ */
+interface DeviceStateProvider {
+    /** 屏幕当前是否亮着 */
+    val isScreenOn: Boolean
+    /** 当前是否在充电 */
+    val isCharging: Boolean
+}
+
+/**
  * 条件评估器 —— 对单个 [ConditionClause] 评估是否满足。
  *
- * 支持：
- * - 次数条件：某事件在时间窗口内发生 ≥N 次
- * - 数值条件：事件携带的数值满足比较操作（如电量 < 20%）
+ * 支持三种评估模式：
+ * 1. **历史事件模式**（默认）：查询 [EventHistoryBuffer] 中过去窗口内的事件
+ * 2. **当前状态模式**（checkCurrentState=true）：查询 [DeviceStateProvider] 获取实时状态
+ * 3. **数值比较模式**：对携带数值的事件（BATTERY_LEVEL, LONG_USAGE）进行阈值比较
  *
  * @param history 事件历史缓冲区
+ * @param stateProvider 当前设备状态提供者（可选，用于状态事件实时查询）
  */
 class ConditionEvaluator(
-    private val history: EventHistoryBuffer
+    private val history: EventHistoryBuffer,
+    private val stateProvider: DeviceStateProvider? = null
 ) {
     /**
      * 评估单个条件子句。
@@ -25,6 +41,17 @@ class ConditionEvaluator(
      * @return 是否满足条件
      */
     fun evaluate(clause: ConditionClause, windowMs: Long, now: Long): Boolean {
+        // ══════════════════════════════════════════════════════════════
+        // 模式 1：当前状态查询（仅状态事件）
+        // ══════════════════════════════════════════════════════════════
+        if (clause.checkCurrentState && stateProvider != null) {
+            return evaluateCurrentState(clause)
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // 模式 2：历史事件查询
+        // ══════════════════════════════════════════════════════════════
+
         // 1. 时间段条件：检查最近事件的小时是否在范围内
         if (clause.eventType.supportsTimeRange && clause.valueMin != null && clause.valueMax != null) {
             val events = history.getInWindow(clause.eventType, windowMs, now)
@@ -58,7 +85,10 @@ class ConditionEvaluator(
      * 1. 找到条件[0]在窗口内的事件时间 t0
      * 2. 找到条件[1]在 t0 之后、窗口内的事件时间 t1
      * 3. 递推...
-     * 4. 如果所有条件都能按顺序找到 → true
+     * 4. 所有条件按顺序满足 → true
+     *
+     * 注意：如果某个条件使用了 checkCurrentState，则跳过对该条件的历史查询，
+     * 直接从 stateProvider 获取当前状态进行判断。
      */
     fun evaluateSequence(clauses: List<ConditionClause>, windowMs: Long, now: Long): Boolean {
         if (clauses.isEmpty()) return false
@@ -68,6 +98,13 @@ class ConditionEvaluator(
         var searchFrom = cutoff
 
         for (clause in clauses) {
+            // 状态事件：直接检查当前状态
+            if (clause.checkCurrentState && stateProvider != null) {
+                if (!evaluateCurrentState(clause)) return false
+                // 状态事件不更新 searchFrom（它是"当前"状态，没有时间戳）
+                continue
+            }
+
             val events = history.getInWindow(clause.eventType, windowMs, now)
                 .filter { it.timestamp >= searchFrom }
 
@@ -86,6 +123,35 @@ class ConditionEvaluator(
         }
 
         return true
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 当前状态评估
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * 通过 [DeviceStateProvider] 查询当前设备状态。
+     *
+     * 支持的状态事件：
+     * - SCREEN_ON → stateProvider.isScreenOn
+     * - SCREEN_OFF → !stateProvider.isScreenOn
+     * - CHARGE_START → stateProvider.isCharging
+     * - CHARGE_STOP → !stateProvider.isCharging
+     */
+    private fun evaluateCurrentState(clause: ConditionClause): Boolean {
+        val provider = stateProvider ?: return false
+
+        return when (clause.eventType) {
+            AtomicEventType.SCREEN_ON -> provider.isScreenOn
+            AtomicEventType.SCREEN_OFF -> !provider.isScreenOn
+            AtomicEventType.CHARGE_START -> provider.isCharging
+            AtomicEventType.CHARGE_STOP -> !provider.isCharging
+            // 其他类型不支持当前状态查询，回退到历史模式
+            else -> {
+                // 不应该走到这里，但作为安全回退
+                false
+            }
+        }
     }
 
     // ══════════════════════════════════════════════════════════════

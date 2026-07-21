@@ -7,6 +7,7 @@ import com.example.pat.event.AtomicEventType
 import com.example.pat.model.ConditionClause
 import com.example.pat.model.ConditionOperator
 import com.example.pat.model.ConflictStrategy
+import com.example.pat.model.ReactionItem
 import com.example.pat.model.UserRule
 import org.json.JSONArray
 import org.json.JSONObject
@@ -106,6 +107,15 @@ class UserRuleRepository(
                 put("lockScreenPublic", rule.lockScreenPublic)
                 put("minIntervalMinutes", rule.minIntervalMinutes)
                 put("conflictStrategy", rule.conflictStrategy.name)
+                // v2: 反应池
+                put("reactions", JSONArray().apply {
+                    rule.reactions.forEach { item ->
+                        put(JSONObject().apply {
+                            put("text", item.text)
+                            put("audioPath", item.audioPath)
+                        })
+                    }
+                })
                 // 条件列表
                 put("conditions", JSONArray().apply {
                     rule.conditions.forEach { clause ->
@@ -116,6 +126,10 @@ class UserRuleRepository(
                             clause.valueMin?.let { put("valueMin", it) }
                             clause.valueMax?.let { put("valueMax", it) }
                             put("count", clause.count)
+                            // v2: 当前状态查询
+                            if (clause.checkCurrentState) {
+                                put("checkCurrentState", true)
+                            }
                         })
                     }
                 })
@@ -147,8 +161,22 @@ class UserRuleRepository(
                     value = if (c.has("value")) c.optInt("value") else null,
                     count = c.optInt("count", 1),
                     valueMin = if (c.has("valueMin")) c.optInt("valueMin") else null,
-                    valueMax = if (c.has("valueMax")) c.optInt("valueMax") else null
+                    valueMax = if (c.has("valueMax")) c.optInt("valueMax") else null,
+                    checkCurrentState = c.optBoolean("checkCurrentState", false)
                 )
+            }
+
+            // v2: 解析反应池
+            val reactions = mutableListOf<ReactionItem>()
+            val reactionsArray = obj.optJSONArray("reactions")
+            if (reactionsArray != null) {
+                for (j in 0 until reactionsArray.length()) {
+                    val rObj = reactionsArray.getJSONObject(j)
+                    reactions.add(ReactionItem(
+                        text = rObj.optString("text", ""),
+                        audioPath = rObj.optString("audioPath", "")
+                    ))
+                }
             }
 
             rules.add(
@@ -164,6 +192,7 @@ class UserRuleRepository(
                     enabled = obj.optBoolean("enabled", true),
                     reactionText = obj.optString("reactionText", ""),
                     reactionAudioPath = obj.optString("reactionAudioPath", ""),
+                    reactions = reactions,
                     notificationEnabled = obj.optBoolean("notificationEnabled", true),
                     vibrationEnabled = obj.optBoolean("vibrationEnabled", false),
                     soundEnabled = obj.optBoolean("soundEnabled", false),

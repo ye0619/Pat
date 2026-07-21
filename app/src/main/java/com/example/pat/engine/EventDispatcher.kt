@@ -13,6 +13,8 @@ import kotlinx.coroutines.launch
 /**
  * 事件分发器 —— 从 EventBus 收集事件并分发到规则引擎。
  *
+ * @deprecated v3 使用统一 RuleEngineV2 替代。保留此文件仅用于参考。
+ *
  * 职责：
  * - 从 [EventBus] 收集所有 [DeviceEvent]
  * - 应用**每事件类型独立冷却**（冷却时间来自 EventConfig.minIntervalMinutes）
@@ -20,6 +22,7 @@ import kotlinx.coroutines.launch
  * - 将事件转发给 [RuleEngine] 评估
  * - 将匹配的配置交给 [ResponseManager] 执行反馈
  */
+@Deprecated("Use RuleEngineV2 (unified engine) instead")
 class EventDispatcher(
     private val ruleEngine: RuleEngine,
     private val responseManager: ResponseManager,

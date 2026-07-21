@@ -34,7 +34,7 @@ object AtomicEventBus {
 
     private val _events = MutableSharedFlow<AtomicEvent>(
         replay = 0,
-        extraBufferCapacity = 64
+        extraBufferCapacity = 128  // v2: 增大缓冲区 — 统一总线承载所有事件
     )
 
     /** 公开的原子事件流 */

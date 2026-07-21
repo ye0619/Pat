@@ -16,6 +16,10 @@ import com.example.pat.event.AtomicEventType
  * @property count 需要发生的次数（仅 supportsCount 事件使用）
  * @property valueMin 时间段起始小时 0-23（仅 supportsTimeRange 事件使用）
  * @property valueMax 时间段结束小时 0-23（仅 supportsTimeRange 事件使用）
+ * @property checkCurrentState 是否查询当前设备状态而非事件历史。仅对状态事件有效
+ *                             （SCREEN_ON, SCREEN_OFF, CHARGE_START, CHARGE_STOP）。
+ *                             例如 SCREEN_ON + checkCurrentState=true 表示"屏幕当前是亮的"
+ *                             而非"在过去窗口内发生过亮屏事件"
  */
 data class ConditionClause(
     val eventType: AtomicEventType,
@@ -23,7 +27,9 @@ data class ConditionClause(
     val value: Int? = null,
     val count: Int = 1,
     val valueMin: Int? = null,
-    val valueMax: Int? = null
+    val valueMax: Int? = null,
+    /** 仅状态事件有效：是否查询当前设备状态而非事件历史 */
+    val checkCurrentState: Boolean = false
 ) {
     enum class CompareOp(val symbol: String) {
         LESS_THAN("<"),

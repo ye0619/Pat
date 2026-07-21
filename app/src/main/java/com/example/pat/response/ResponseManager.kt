@@ -6,16 +6,22 @@ import com.example.pat.audio.AudioPlayer
 import com.example.pat.data.PresetRepository
 import com.example.pat.model.AudioType
 import com.example.pat.model.EventConfig
+import com.example.pat.model.NotificationPreference
+import com.example.pat.model.ReactionItem
 import com.example.pat.model.ReactionPreset
+import com.example.pat.model.toNotificationPreference
 
 /**
  * 反馈管理器 —— 协调所有反馈通道。
  *
  * 关键保证：
- * 1. **文本与音频一致**：通知文本和播放的音频始终来自同一个预设
+ * 1. **文本与音频一致**：通知文本和播放的音频始终来自同一个 ReactionItem
  * 2. **全局互斥**：同一时间只有一个事件在执行反馈，避免音频冲突
+ * 3. **反应池支持**：支持多个 ReactionItem，触发时随机选择
  *
- * 数据流：EventConfig.presetId → PresetRepository.getById() → ReactionPreset → 执行
+ * v2 改进：
+ * - 新增 [execute(reactions, notification)] 方法，支持反应池
+ * - 旧的 [execute(config)] 方法保留兼容，内部转为新接口
  *
  * @property context Android Context
  * @property presetRepository 预设仓库
@@ -32,21 +38,26 @@ class ResponseManager(
     @Volatile
     private var isExecuting = false
 
+    // ══════════════════════════════════════════════════════════════
+    // v2: 反应池接口（推荐）
+    // ══════════════════════════════════════════════════════════════
+
     /**
-     * 根据事件规则执行反馈。
+     * 从反应池中随机选择一个 ReactionItem 并执行反馈。
      *
-     * 统一解析一个 ReactionPreset，保证文本和音频来源一致：
-     * 1. 优先使用 EventConfig.presetId 对应的预设
-     * 2. 无预设时随机选择一个同事件类型的内置预设
-     * 3. 仍无预设时使用系统默认文本（无音频）
-     *
-     * @param config 匹配的事件规则
+     * @param reactions 反馈池（至少 1 个）
+     * @param notification 通知偏好
      * @return 实际使用的反馈文本，被全局锁阻止时返回 null
      */
-    fun execute(config: EventConfig): String? {
+    fun execute(reactions: List<ReactionItem>, notification: NotificationPreference): String? {
+        if (reactions.isEmpty()) {
+            Log.w(TAG, "Empty reaction pool — nothing to execute")
+            return null
+        }
+
         // ── 全局互斥检查 ──
         if (isExecuting) {
-            Log.i(TAG, "Another event is being processed — skipping ${config.eventType.name}")
+            Log.i(TAG, "Another event is being processed — skipping")
             return null
         }
         synchronized(this) {
@@ -55,53 +66,74 @@ class ResponseManager(
         }
 
         try {
-            return executeInternal(config)
+            // 随机选择一个 ReactionItem
+            val selected = if (reactions.size == 1) {
+                reactions.first()
+            } else {
+                reactions[kotlin.random.Random.nextInt(reactions.size)]
+            }
+
+            return executeReaction(selected, notification)
         } finally {
             isExecuting = false
         }
     }
 
     /**
-     * 内部执行逻辑 —— 文本和音频始终来自同一个预设。
-     * @return 实际使用的反馈文本
+     * 执行单个 ReactionItem 的反馈。
      */
-    private fun executeInternal(config: EventConfig): String {
-        Log.i(TAG, "Executing response for: ${config.eventType.name} (presetId=${config.presetId})")
+    private fun executeReaction(item: ReactionItem, notification: NotificationPreference): String {
+        val displayText = item.text
+        val audioPath = item.audioPath
 
-        // ── 解析预设（用户自定义优先） ──
-        val preset: ReactionPreset? = resolvePreset(config)
-            ?: presetRepository.getRandom(config.eventType)
+        Log.i(TAG, "Executing reaction: text=\"$displayText\" audio=\"$audioPath\"")
 
-        // 文本：用户自定义 > 预设 > 默认
-        val displayText = config.effectiveText(preset)
-
-        // 音频：用户自定义 > 预设
-        val audioPath = config.effectiveAudioPath(preset)
-        val audioType = preset?.audioType ?: AudioType.PRESET
-
-        // 1. 通知反馈（Heads-up + 声音 + 震动，全部由用户偏好控制）
-        if (config.notificationEnabled && displayText.isNotBlank()) {
+        // 1. 通知反馈
+        if (notification.enabled && displayText.isNotBlank()) {
             notificationService.show(
                 title = "Pat",
                 text = displayText,
-                enableSound = config.soundEnabled,
-                enableVibration = config.vibrationEnabled,
-                showHeadsUp = config.showHeadsUp,
-                lockScreenPublic = config.lockScreenPublic
+                enableSound = notification.sound,
+                enableVibration = notification.vibration,
+                showHeadsUp = notification.headsUp,
+                lockScreenPublic = notification.lockScreenPublic
             )
         }
 
         // 2. 语音反馈
         if (audioPath.isNotBlank()) {
-            if (audioType == AudioType.CUSTOM && (audioPath.startsWith("/") || audioPath.startsWith(context.filesDir.absolutePath))) {
+            if (audioPath.startsWith("/") || audioPath.startsWith(context.filesDir.absolutePath)) {
                 voiceService.play(audioPath)
             } else {
                 audioPlayer.playAsset(audioPath)
             }
         }
 
-        Log.i(TAG, "Response executed: text=\"$displayText\" audio=\"$audioPath\"")
         return displayText
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 旧版接口（向后兼容）
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * 根据事件规则执行反馈（旧接口，内部转为新接口）。
+     *
+     * @param config 匹配的事件规则
+     * @return 实际使用的反馈文本，被全局锁阻止时返回 null
+     */
+    fun execute(config: EventConfig): String? {
+        // 解析预设
+        val preset: ReactionPreset? = resolvePreset(config)
+            ?: presetRepository.getRandom(config.eventType)
+
+        val text = config.effectiveText(preset)
+        val audioPath = config.effectiveAudioPath(preset)
+
+        return execute(
+            reactions = listOf(ReactionItem(text = text, audioPath = audioPath)),
+            notification = config.toNotificationPreference()
+        )
     }
 
     /**

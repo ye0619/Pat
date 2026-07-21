@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import com.example.pat.event.EventType
 import com.example.pat.model.EventConfig
+import com.example.pat.model.ReactionItem
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -17,15 +18,6 @@ import org.json.JSONObject
  * - 以 JSON 格式序列化到 SharedPreferences
  *
  * @property presetRepository 用于自动关联默认预设
- *
- * 使用方式：
- * ```
- * val repo = EventConfigRepository(context, presetRepo)
- * val configs = repo.loadAll()
- * repo.save(config)
- * ```
- *
- * 参考：目标架构 - EventConfigRepository
  */
 class EventConfigRepository(
     context: Context,
@@ -92,10 +84,11 @@ class EventConfigRepository(
                 presetId = firstPreset?.id ?: "",
                 notificationEnabled = true,
                 minIntervalMinutes = 10,
-                vibrationEnabled = false,   // 震动默认关闭
-                soundEnabled = false,     // 声音默认关闭
+                vibrationEnabled = false,
+                soundEnabled = false,
                 showHeadsUp = true,
-                lockScreenPublic = true
+                lockScreenPublic = true,
+                reactions = emptyList()  // 默认无反应池
             )
         }
     }
@@ -118,6 +111,15 @@ class EventConfigRepository(
                 put("lockScreenPublic", config.lockScreenPublic)
                 put("customText", config.customText)
                 put("customAudioPath", config.customAudioPath)
+                // v2: 反应池
+                put("reactions", JSONArray().apply {
+                    config.reactions.forEach { item ->
+                        put(JSONObject().apply {
+                            put("text", item.text)
+                            put("audioPath", item.audioPath)
+                        })
+                    }
+                })
             })
         }
         return array.toString()
@@ -133,6 +135,19 @@ class EventConfigRepository(
                 EventType.valueOf(typeName)
             } catch (e: IllegalArgumentException) { continue }
 
+            // v2: 解析反应池
+            val reactions = mutableListOf<ReactionItem>()
+            val reactionsArray = obj.optJSONArray("reactions")
+            if (reactionsArray != null) {
+                for (j in 0 until reactionsArray.length()) {
+                    val rObj = reactionsArray.getJSONObject(j)
+                    reactions.add(ReactionItem(
+                        text = rObj.optString("text", ""),
+                        audioPath = rObj.optString("audioPath", "")
+                    ))
+                }
+            }
+
             configs.add(
                 EventConfig(
                     id = obj.optString("id", ""),
@@ -143,7 +158,6 @@ class EventConfigRepository(
                     notificationEnabled = obj.optBoolean("notificationEnabled", true),
                     minIntervalMinutes = obj.optInt("minIntervalMinutes", 10),
                     priority = obj.optInt("priority", 5),
-                    // optBoolean 对不存在的 key 返回 false，新字段需手动处理默认值
                     vibrationEnabled = if (obj.has("vibrationEnabled"))
                         obj.optBoolean("vibrationEnabled") else false,
                     soundEnabled = if (obj.has("soundEnabled"))
@@ -153,7 +167,8 @@ class EventConfigRepository(
                     lockScreenPublic = if (obj.has("lockScreenPublic"))
                         obj.optBoolean("lockScreenPublic") else true,
                     customText = obj.optString("customText", ""),
-                    customAudioPath = obj.optString("customAudioPath", "")
+                    customAudioPath = obj.optString("customAudioPath", ""),
+                    reactions = reactions
                 )
             )
         }

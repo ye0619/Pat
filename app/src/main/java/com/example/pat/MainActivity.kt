@@ -15,8 +15,8 @@ import androidx.compose.ui.Modifier
 import com.example.pat.data.EventConfigRepository
 import com.example.pat.data.PresetRepository
 import com.example.pat.data.UserRuleRepository
-import com.example.pat.event.DeviceEvent
-import com.example.pat.event.EventBus
+import com.example.pat.event.AtomicEvent
+import com.example.pat.event.AtomicEventBus
 import com.example.pat.model.EventConfig
 import com.example.pat.model.UserRule
 import com.example.pat.service.CompanionForegroundService
@@ -32,6 +32,10 @@ import com.example.pat.util.PermissionManager
 
 /**
  * MotionPet 主 Activity —— 纯 UI 层。
+ *
+ * v3 改动：
+ * - 测试按钮改为发射 AtomicEvent 到 AtomicEventBus
+ * - 触发统计/历史从 RuleEngineV2 读取
  */
 class MainActivity : ComponentActivity() {
 
@@ -75,30 +79,20 @@ class MainActivity : ComponentActivity() {
                         HomeScreen(
                             isServiceRunning = service != null,
                             todayTriggerCount = if (service != null) {
-                                service.eventDispatcher.todayTriggerCount
+                                service.ruleEngineV2.todayTriggerCount
                             } else todayTriggerCount,
                             recentTriggers = if (service != null) {
-                                service.eventDispatcher.recentTriggers
+                                service.ruleEngineV2.recentTriggers
                             } else emptyList(),
                             onNavigateToEventList = {
                                 configs = configRepository.loadAll()
                                 userRules = userRuleRepository.loadAll()
                                 currentScreen = Screen.EventList
                             },
-                            onTestEvent = { eventType ->
-                                val testEvent = when (eventType) {
-                                    com.example.pat.event.EventType.SCREEN_LONG_USAGE ->
-                                        DeviceEvent.LongUsage(minutes = 999)
-                                    com.example.pat.event.EventType.CHARGE_START ->
-                                        DeviceEvent.ChargeStart
-                                    com.example.pat.event.EventType.LOW_BATTERY ->
-                                        DeviceEvent.LowBattery
-                                    com.example.pat.event.EventType.SHAKE ->
-                                        DeviceEvent.Shake
-                                    com.example.pat.event.EventType.IMPACT ->
-                                        DeviceEvent.Impact(intensity = 1.0f)
-                                }
-                                EventBus.tryEmit(testEvent)
+                            onTestAtomicEvent = { event ->
+                                // v3: 直接向 AtomicEventBus 发射测试事件
+                                // 统一规则引擎将处理基础事件和自定义规则
+                                AtomicEventBus.tryEmit(event)
                             },
                             modifier = Modifier.fillMaxSize()
                         )
@@ -237,9 +231,8 @@ class MainActivity : ComponentActivity() {
                             onSave = { rule ->
                                 userRuleRepository.save(rule)
                                 userRules = userRuleRepository.loadAll()
-                                // 通知 Service 中的 RuleEngineV2 重新加载
                                 CompanionForegroundServiceHolder.instance?.let { svc ->
-                                    svc.ruleEngineV2?.reloadRules()
+                                    svc.ruleEngineV2.reloadRules()
                                 }
                                 currentScreen = Screen.RuleList
                             },
@@ -247,12 +240,11 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxSize()
                         )
                     }
-
                 }
             }
         }
 
-        Log.i(TAG, "MainActivity created")
+        Log.i(TAG, "MainActivity created (v3)")
     }
 
     override fun onResume() {

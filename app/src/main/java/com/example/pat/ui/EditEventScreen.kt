@@ -1,5 +1,6 @@
 package com.example.pat.ui
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,25 +13,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.pat.data.PresetRepository
 import com.example.pat.event.EventType
 import com.example.pat.model.EventConfig
+import com.example.pat.model.ReactionItem
 import com.example.pat.model.ReactionPreset
 import com.example.pat.ui.theme.PatTheme
 
 /**
- * 事件编辑页面 —— 配置事件规则并选择反馈预设。
+ * 基础事件编辑页面 —— 配置反馈内容（文本+音频池）和通知方式。
  *
- * 功能：
- * - 启用/禁用开关
- * - 阈值滑块（适用的事件类型）
- * - 预设选择（RadioButton 列表 + 自定义选项）
- * - 通知开关
- * - 试听当前选中预设
- * - 保存
+ * v2 改进：
+ * - 多 ReactionItem 编辑（+ 添加按钮，列表展示，每项包含 text + audio）
+ * - 高级设置折叠（priority, cooldown）
+ * - 阈值仅对 LONG_USAGE / LOW_BATTERY 显示
+ * - 不再暴露检测器参数（SHAKE/IMPACT 的检测逻辑由系统控制）
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditEventScreen(
     config: EventConfig,
@@ -51,7 +51,18 @@ fun EditEventScreen(
     var showHeadsUp by remember { mutableStateOf(config.showHeadsUp) }
     var lockScreenPublic by remember { mutableStateOf(config.lockScreenPublic) }
     var minIntervalMinutes by remember { mutableFloatStateOf(config.minIntervalMinutes.toFloat()) }
-    var priority by remember { mutableFloatStateOf(5f) }
+    var priority by remember { mutableFloatStateOf(config.priority.toFloat()) }
+
+    // v2: 反应池编辑
+    var reactions by remember {
+        mutableStateOf(
+            if (config.reactions.isNotEmpty()) config.reactions.toMutableList()
+            else mutableListOf(ReactionItem(text = config.customText, audioPath = config.customAudioPath))
+        )
+    }
+
+    // 高级设置折叠
+    var showAdvanced by remember { mutableStateOf(false) }
 
     // ── 可用预设列表 ──
     val availablePresets = remember {
@@ -88,9 +99,22 @@ fun EditEventScreen(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
+            Spacer(Modifier.weight(1f))
+            // 标签：基础事件
+            Surface(
+                shape = MaterialTheme.shapes.small,
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Text(
+                    text = "基础事件",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+            }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // ── 启用开关 ──
         Row(
@@ -102,9 +126,9 @@ fun EditEventScreen(
             Switch(checked = enabled, onCheckedChange = { enabled = it })
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // ── 阈值滑块 ──
+        // ── 阈值滑块（仅适用类型） ──
         if (showThreshold) {
             Text(
                 text = "触发条件: ${threshold.toInt()}$thresholdLabel",
@@ -125,44 +149,90 @@ fun EditEventScreen(
                 valueRange = sliderRange,
                 modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // ── 反馈预设选择 ──
+        // ── 反馈池（v2：多 ReactionItem） ──
         Text(
-            text = "选择反馈预设",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold
+            text = "反馈内容池",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "触发时随机选择一条。至少需要一条文本。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(8.dp))
 
+        reactions.forEachIndexed { index, item ->
+            ReactionItemCard(
+                index = index,
+                item = item,
+                onUpdate = { updated ->
+                    reactions = reactions.toMutableList().also { it[index] = updated }
+                },
+                onRemove = {
+                    if (reactions.size > 1) {
+                        reactions = reactions.toMutableList().also { it.removeAt(index) }
+                    }
+                },
+                onPreview = { path ->
+                    if (path.isNotBlank()) onPreviewAsset(path)
+                },
+                canRemove = reactions.size > 1
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        TextButton(onClick = {
+            reactions = reactions.toMutableList().also { it.add(ReactionItem()) }
+        }) {
+            Text("+ 添加反馈项")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ── 预设选择 ──
+        Text(
+            text = "预设快速填充",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "选择一个预设将其文本/音频填入反馈池",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+
         if (availablePresets.isEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Text(
-                    text = "暂无可用预设，请创建自定义预设",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
+            Text(
+                text = "暂无可用预设",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         } else {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.selectableGroup()) {
+            var presetExpanded by remember { mutableStateOf(false) }
+            Box {
+                OutlinedButton(onClick = { presetExpanded = true }) {
+                    Text("选择预设填充 →")
+                }
+                DropdownMenu(presetExpanded, { presetExpanded = false }) {
                     availablePresets.forEach { preset ->
-                        val isSelected = preset.id == selectedPresetId
-                        PresetRadioRow(
-                            preset = preset,
-                            isSelected = isSelected,
-                            onSelect = { selectedPresetId = preset.id },
-                            onPreview = {
-                                if (preset.audioAssetPath.isNotBlank()) {
-                                    onPreviewAsset(preset.audioAssetPath)
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(preset.name, style = MaterialTheme.typography.bodyMedium)
+                                    Text(preset.text, style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
+                            },
+                            onClick = {
+                                reactions = mutableListOf(
+                                    ReactionItem(text = preset.text, audioPath = preset.audioAssetPath)
+                                )
+                                presetExpanded = false
                             }
                         )
                     }
@@ -170,63 +240,11 @@ fun EditEventScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // ── 自定义预设入口 ──
-        TextButton(
-            onClick = { onCreateCustomPreset(config.eventType) }
-        ) {
+        TextButton(onClick = { onCreateCustomPreset(config.eventType) }) {
             Text("+ 创建自定义预设")
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // ── 当前选中预设详情 ──
-        if (selectedPreset != null) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "已选: ${selectedPreset.name}",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        text = "文本: ${selectedPreset.text}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    if (selectedPreset.audioAssetPath.isNotBlank()) {
-                        Text(
-                            text = "音频: ${selectedPreset.audioAssetPath}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedButton(
-                        onClick = { onPreviewAsset(selectedPreset.audioAssetPath) },
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    ) {
-                        Text("试听")
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        // ── 优先级 ──
-        Text("优先级: ${priority.toInt()}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-        Slider(value = priority, onValueChange = { priority = it },
-            valueRange = 1f..10f, steps = 8, modifier = Modifier.fillMaxWidth())
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // ── 通知设置 ──
         Text(
@@ -238,18 +256,13 @@ fun EditEventScreen(
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp)) {
-
-                // 通知总开关
                 NotificationSwitchRow(
                     label = "通知总开关",
                     description = "事件触发时发送通知",
                     checked = notificationEnabled,
                     onCheckedChange = { notificationEnabled = it }
                 )
-
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                // 弹窗横幅
                 NotificationSwitchRow(
                     label = "弹窗横幅",
                     description = "屏幕顶部弹出横幅提醒",
@@ -257,10 +270,7 @@ fun EditEventScreen(
                     onCheckedChange = { showHeadsUp = it },
                     enabled = notificationEnabled
                 )
-
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                // 播放声音
                 NotificationSwitchRow(
                     label = "播放声音",
                     description = "系统通知提示音",
@@ -268,10 +278,7 @@ fun EditEventScreen(
                     onCheckedChange = { soundEnabled = it },
                     enabled = notificationEnabled
                 )
-
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                // 震动
                 NotificationSwitchRow(
                     label = "开启震动",
                     description = "通知时震动（默认关闭）",
@@ -279,10 +286,7 @@ fun EditEventScreen(
                     onCheckedChange = { vibrationEnabled = it },
                     enabled = notificationEnabled
                 )
-
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-                // 锁屏显示
                 NotificationSwitchRow(
                     label = "锁屏显示内容",
                     description = "锁屏时显示通知详情",
@@ -293,29 +297,61 @@ fun EditEventScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // ── 最小触发间隔 ──
-        Text(
-            text = "最小触发间隔: ${minIntervalMinutes.toInt()}分钟",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-        Text(
-            text = "同一事件在此时间内不会重复触发。设为 0 表示每次检测都触发。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Slider(
-            value = minIntervalMinutes,
-            onValueChange = { minIntervalMinutes = it },
-            valueRange = 0f..60f,
-            steps = 11,  // 0, 5, 10, 15, ..., 60
-            modifier = Modifier.fillMaxWidth()
-        )
+        // ── 高级设置（折叠） ──
+        Card(
+            modifier = Modifier.fillMaxWidth().animateContentSize(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { showAdvanced = !showAdvanced },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("高级设置", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text(if (showAdvanced) "▲" else "▼")
+                }
 
-        Spacer(modifier = Modifier.height(32.dp))
+                if (showAdvanced) {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text("优先级: ${priority.toInt()}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = "多个事件同时触发时，高优先级事件优先执行",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Slider(value = priority, onValueChange = { priority = it },
+                        valueRange = 1f..10f, steps = 8, modifier = Modifier.fillMaxWidth())
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "最小触发间隔: ${minIntervalMinutes.toInt()}分钟",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "同一事件在此时间内不会重复触发。0 = 无限制。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Slider(
+                        value = minIntervalMinutes,
+                        onValueChange = { minIntervalMinutes = it },
+                        valueRange = 0f..60f,
+                        steps = 11,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         // ── 保存按钮 ──
         Button(
@@ -330,65 +366,83 @@ fun EditEventScreen(
                         soundEnabled = soundEnabled,
                         showHeadsUp = showHeadsUp,
                         lockScreenPublic = lockScreenPublic,
-                        minIntervalMinutes = minIntervalMinutes.toInt()
+                        minIntervalMinutes = minIntervalMinutes.toInt(),
+                        priority = priority.toInt(),
+                        customText = reactions.firstOrNull()?.text ?: "",
+                        customAudioPath = reactions.firstOrNull()?.audioPath ?: "",
+                        reactions = reactions.filter { it.text.isNotBlank() || it.audioPath.isNotBlank() }
                     )
                 )
             },
             modifier = Modifier.fillMaxWidth(),
+            enabled = reactions.any { it.text.isNotBlank() },
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
             Text("保存", style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(vertical = 4.dp))
         }
+
+        Spacer(modifier = Modifier.height(32.dp))
     }
 }
 
 /**
- * 预设单选行 —— RadioButton + 文本 + 试听按钮。
+ * 单个 ReactionItem 编辑卡片。
  */
 @Composable
-private fun PresetRadioRow(
-    preset: ReactionPreset,
-    isSelected: Boolean,
-    onSelect: () -> Unit,
-    onPreview: () -> Unit
+private fun ReactionItemCard(
+    index: Int,
+    item: ReactionItem,
+    onUpdate: (ReactionItem) -> Unit,
+    onRemove: () -> Unit,
+    onPreview: (String) -> Unit,
+    canRemove: Boolean
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .selectable(
-                selected = isSelected,
-                onClick = onSelect,
-                role = Role.RadioButton
-            )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RadioButton(
-            selected = isSelected,
-            onClick = null  // handled by selectable modifier
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
-        Spacer(modifier = Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = preset.text,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("反馈 #${index + 1}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f))
+                if (item.audioPath.isNotBlank()) {
+                    TextButton(onClick = { onPreview(item.audioPath) }) { Text("试听", style = MaterialTheme.typography.labelSmall) }
+                }
+                if (canRemove) {
+                    TextButton(onClick = onRemove) {
+                        Text("删除", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = item.text,
+                onValueChange = { onUpdate(item.copy(text = it)) },
+                label = { Text("文本") },
+                placeholder = { Text("触发时显示的文字") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = MaterialTheme.typography.bodyMedium
             )
-            Text(
-                text = preset.name,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = item.audioPath,
+                onValueChange = { onUpdate(item.copy(audioPath = it)) },
+                label = { Text("音频路径（可选）") },
+                placeholder = { Text("assets/xxx.wav 或 /data/.../xxx.audio") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = MaterialTheme.typography.bodySmall
             )
-        }
-        if (preset.audioAssetPath.isNotBlank()) {
-            TextButton(onClick = onPreview) { Text("试听") }
         }
     }
 }
 
 /**
- * 通知设置开关行 —— 标签 + 描述 + Switch。
+ * 通知设置开关行。
  */
 @Composable
 private fun NotificationSwitchRow(
@@ -426,13 +480,5 @@ private fun NotificationSwitchRow(
             onCheckedChange = { if (enabled) onCheckedChange(it) },
             enabled = enabled
         )
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun EditEventScreenPreview() {
-    PatTheme {
-        // Preview only — cannot instantiate real repository here
     }
 }

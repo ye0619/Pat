@@ -8,6 +8,9 @@ import com.example.pat.model.EventConfig
 /**
  * 规则引擎 —— 匹配设备事件与用户配置的事件规则。
  *
+ * @deprecated v3 使用统一 RuleEngineV2 替代，该版本仅支持 1:1 EventType 映射。
+ *             保留此文件仅用于参考。
+ *
  * 职责：
  * - 将运行时 [DeviceEvent] 映射到 [EventType]
  * - 从 [EventConfigRepository] 查找该事件类型对应的 [EventConfig]
@@ -19,6 +22,7 @@ import com.example.pat.model.EventConfig
  * - 反馈执行（由 [ResponseManager] 负责）
  * - 配置持久化（由 [EventConfigRepository] 负责）
  */
+@Deprecated("Use RuleEngineV2 (unified engine) instead")
 class RuleEngine(
     private val configRepository: EventConfigRepository
 ) {
