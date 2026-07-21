@@ -26,9 +26,9 @@ import com.example.pat.ui.theme.PatTheme
  *
  * v2 改进：
  * - 多 ReactionItem 编辑（+ 添加按钮，列表展示，每项包含 text + audio）
+ * - 预设选择：RadioButton 列表 + 选中后自动填充反应池
  * - 高级设置折叠（priority, cooldown）
  * - 阈值仅对 LONG_USAGE / LOW_BATTERY 显示
- * - 不再暴露检测器参数（SHAKE/IMPACT 的检测逻辑由系统控制）
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,7 +53,7 @@ fun EditEventScreen(
     var minIntervalMinutes by remember { mutableFloatStateOf(config.minIntervalMinutes.toFloat()) }
     var priority by remember { mutableFloatStateOf(config.priority.toFloat()) }
 
-    // v2: 反应池编辑
+    // v2: 反应池编辑 — 从 config.reactions 或预设/customText+customAudioPath 初始化
     var reactions by remember {
         mutableStateOf(
             if (config.reactions.isNotEmpty()) config.reactions.toMutableList()
@@ -100,7 +100,6 @@ fun EditEventScreen(
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.weight(1f))
-            // 标签：基础事件
             Surface(
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.secondaryContainer
@@ -152,14 +151,119 @@ fun EditEventScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // ── 反馈池（v2：多 ReactionItem） ──
+        // ═══════════════════════════════════════════
+        // 预设选择（保持原有 RadioButton 列表）
+        // ═══════════════════════════════════════════
         Text(
-            text = "反馈内容池",
+            text = "选择反馈预设",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (availablePresets.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Text(
+                    text = "暂无可用预设，请创建自定义预设",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        } else {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.selectableGroup()) {
+                    availablePresets.forEach { preset ->
+                        val isSelected = preset.id == selectedPresetId
+                        PresetRadioRow(
+                            preset = preset,
+                            isSelected = isSelected,
+                            onSelect = {
+                                selectedPresetId = preset.id
+                                // 选中预设时自动填充反应池
+                                reactions = mutableListOf(
+                                    ReactionItem(text = preset.text, audioPath = preset.audioAssetPath)
+                                )
+                            },
+                            onPreview = {
+                                if (preset.audioAssetPath.isNotBlank()) {
+                                    onPreviewAsset(preset.audioAssetPath)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        TextButton(onClick = { onCreateCustomPreset(config.eventType) }) {
+            Text("+ 创建自定义预设")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ── 当前选中预设详情 ──
+        if (selectedPreset != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "已选: ${selectedPreset.name}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "文本: ${selectedPreset.text}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            if (selectedPreset.audioAssetPath.isNotBlank()) {
+                                Text(
+                                    text = "音频: ${selectedPreset.audioAssetPath}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { onPreviewAsset(selectedPreset.audioAssetPath) },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    ) {
+                        Text("试听")
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // ═══════════════════════════════════════════
+        // 反馈池编辑（v2：多 ReactionItem）
+        // ═══════════════════════════════════════════
+        Text(
+            text = "反馈内容池（高级）",
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "触发时随机选择一条。至少需要一条文本。",
+            text = "触发时随机选择一条。预设选择会自动填充第一项。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -189,59 +293,6 @@ fun EditEventScreen(
             reactions = reactions.toMutableList().also { it.add(ReactionItem()) }
         }) {
             Text("+ 添加反馈项")
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // ── 预设选择 ──
-        Text(
-            text = "预设快速填充",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = "选择一个预设将其文本/音频填入反馈池",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-
-        if (availablePresets.isEmpty()) {
-            Text(
-                text = "暂无可用预设",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else {
-            var presetExpanded by remember { mutableStateOf(false) }
-            Box {
-                OutlinedButton(onClick = { presetExpanded = true }) {
-                    Text("选择预设填充 →")
-                }
-                DropdownMenu(presetExpanded, { presetExpanded = false }) {
-                    availablePresets.forEach { preset ->
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text(preset.name, style = MaterialTheme.typography.bodyMedium)
-                                    Text(preset.text, style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            },
-                            onClick = {
-                                reactions = mutableListOf(
-                                    ReactionItem(text = preset.text, audioPath = preset.audioAssetPath)
-                                )
-                                presetExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        TextButton(onClick = { onCreateCustomPreset(config.eventType) }) {
-            Text("+ 创建自定义预设")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -383,6 +434,50 @@ fun EditEventScreen(
         }
 
         Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+/**
+ * 预设单选行 —— RadioButton + 文本 + 试听按钮。
+ */
+@Composable
+private fun PresetRadioRow(
+    preset: ReactionPreset,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+    onPreview: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(
+                selected = isSelected,
+                onClick = onSelect,
+                role = Role.RadioButton
+            )
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = isSelected,
+            onClick = null  // handled by selectable modifier
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = preset.text,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+            )
+            Text(
+                text = preset.name,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (preset.audioAssetPath.isNotBlank()) {
+            TextButton(onClick = onPreview) { Text("试听") }
+        }
     }
 }
 
