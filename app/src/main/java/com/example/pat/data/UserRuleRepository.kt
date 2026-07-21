@@ -113,6 +113,8 @@ class UserRuleRepository(
                             put("eventType", clause.eventType.name)
                             clause.operator?.let { put("compareOp", it.name) }
                             clause.value?.let { put("value", it) }
+                            clause.valueMin?.let { put("valueMin", it) }
+                            clause.valueMax?.let { put("valueMax", it) }
                             put("count", clause.count)
                         })
                     }
@@ -143,7 +145,9 @@ class UserRuleRepository(
                         try { ConditionClause.CompareOp.valueOf(op) } catch (e: IllegalArgumentException) { null }
                     },
                     value = if (c.has("value")) c.optInt("value") else null,
-                    count = c.optInt("count", 1)
+                    count = c.optInt("count", 1),
+                    valueMin = if (c.has("valueMin")) c.optInt("valueMin") else null,
+                    valueMax = if (c.has("valueMax")) c.optInt("valueMax") else null
                 )
             }
 

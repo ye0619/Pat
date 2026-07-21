@@ -71,8 +71,11 @@ sealed class AtomicEvent {
         val minutes: Int
     ) : AtomicEvent()
 
-    /** 深夜使用 */
-    data class LateNight(override val timestamp: Long) : AtomicEvent()
+    /** 在某个时间段使用手机（屏幕点亮时的小时数 0-23） */
+    data class LateNight(
+        override val timestamp: Long,
+        val hour: Int
+    ) : AtomicEvent()
 }
 
 /**

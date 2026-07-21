@@ -107,9 +107,10 @@ class ScreenMonitor(
             if (!lateNightEmitted && isLateNightHour()) {
                 lateNightEmitted = true
                 val now = System.currentTimeMillis()
+                val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
                 _events.tryEmit(DeviceEvent.LateNight)
-                AtomicEventBus.tryEmit(AtomicEvent.LateNight(now))
-                Log.i(TAG, "Event emitted (fallback): LateNight")
+                AtomicEventBus.tryEmit(AtomicEvent.LateNight(now, hour))
+                Log.i(TAG, "Event emitted (fallback): LateNight (hour=$hour)")
             }
 
             val now = System.currentTimeMillis()
@@ -133,9 +134,10 @@ class ScreenMonitor(
                         // 深夜检测
                         if (!lateNightEmitted && isLateNightHour()) {
                             lateNightEmitted = true
+                            val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
                             _events.tryEmit(DeviceEvent.LateNight)
-                            AtomicEventBus.tryEmit(AtomicEvent.LateNight(now))
-                            Log.i(TAG, "Event emitted: LateNight")
+                            AtomicEventBus.tryEmit(AtomicEvent.LateNight(now, hour))
+                            Log.i(TAG, "Event emitted: LateNight (hour=$hour)")
                         }
 
                         _events.tryEmit(DeviceEvent.ScreenWake)

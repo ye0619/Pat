@@ -19,12 +19,12 @@ import com.example.pat.sensor.AccelData
  * 参考文档：5.1 拍击检测
  */
 class ImpactDetector(
-    /** 撞击判定阈值 (m/s²)，超过此值视为潜在撞击 */
-    private val threshold: Float = 25.0f,
+    /** 撞击判定阈值 (m/s²)，18.0 可检测手指轻拍 */
+    private val threshold: Float = 18.0f,
     /** 两次触发之间的最小间隔 (ms)，防止连续误触 */
-    private val cooldownMs: Long = 300L,
-    /** 滑动窗口大小 */
-    private val windowSize: Int = 5
+    private val cooldownMs: Long = 500L,
+    /** 滑动窗口大小（减小以更快响应轻拍） */
+    private val windowSize: Int = 3
 ) : MotionDetector<ImpactResult> {
 
     private val window = ArrayDeque<Float>(windowSize)

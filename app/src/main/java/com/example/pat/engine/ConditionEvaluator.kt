@@ -25,11 +25,24 @@ class ConditionEvaluator(
      * @return 是否满足条件
      */
     fun evaluate(clause: ConditionClause, windowMs: Long, now: Long): Boolean {
-        // 1. 检查发生次数
-        val actualCount = history.countInWindow(clause.eventType, windowMs, now)
-        if (actualCount < clause.count) return false
+        // 1. 时间段条件：检查最近事件的小时是否在范围内
+        if (clause.eventType.supportsTimeRange && clause.valueMin != null && clause.valueMax != null) {
+            val events = history.getInWindow(clause.eventType, windowMs, now)
+            if (events.isEmpty()) return false
+            val last = events.last() as? AtomicEvent.LateNight ?: return false
+            return isHourInRange(last.hour, clause.valueMin, clause.valueMax)
+        }
 
-        // 2. 如果有数值条件，检查最新一次事件的值
+        // 2. 检查发生次数
+        if (clause.eventType.supportsCount) {
+            val actualCount = history.countInWindow(clause.eventType, windowMs, now)
+            if (actualCount < clause.count) return false
+        } else {
+            // 非计数事件：至少发生一次
+            if (history.countInWindow(clause.eventType, windowMs, now) < 1) return false
+        }
+
+        // 3. 如果有数值条件，检查最新一次事件的值
         if (clause.operator != null && clause.value != null) {
             val latestValue = getLatestValue(clause.eventType, windowMs, now) ?: return false
             return compareValue(latestValue, clause.operator, clause.value)
@@ -98,6 +111,18 @@ class ConditionEvaluator(
             ConditionClause.CompareOp.GREATER_THAN -> actual > expected
             ConditionClause.CompareOp.GREATER_EQUAL -> actual >= expected
             ConditionClause.CompareOp.EQUAL -> actual == expected
+        }
+    }
+
+    /**
+     * 判断小时是否在指定范围内（支持跨天，如 22:00-06:00）。
+     */
+    private fun isHourInRange(hour: Int, start: Int, end: Int): Boolean {
+        return if (start <= end) {
+            hour in start..end
+        } else {
+            // 跨天范围，如 22-6
+            hour >= start || hour <= end
         }
     }
 }
