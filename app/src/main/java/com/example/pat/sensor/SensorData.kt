@@ -26,11 +26,17 @@ data class AccelData(
         /** 重力加速度参考值 (m/s²) */
         const val GRAVITY: Float = 9.80665f
 
-        /** 静止状态下 magnitude 的合理下限 */
-        const val STILL_LOWER_BOUND: Float = 9.0f
+        /**
+         * 静止状态下 magnitude 的合理下限。
+         * 手持手机时微动会偏离纯重力值，7.5 覆盖正常手持场景。
+         */
+        const val STILL_LOWER_BOUND: Float = 7.5f
 
-        /** 静止状态下 magnitude 的合理上限 */
-        const val STILL_UPPER_BOUND: Float = 11.0f
+        /**
+         * 静止状态下 magnitude 的合理上限。
+         * 12.5 ≈ 1.27g，排除故意摇晃但允许手持微动。
+         */
+        const val STILL_UPPER_BOUND: Float = 12.5f
     }
 }
 

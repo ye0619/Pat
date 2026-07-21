@@ -52,7 +52,7 @@ data class EventConfig(
             EventType.CHARGE_START -> "谢谢给我补充能量"
             EventType.LOW_BATTERY -> "我要没电啦"
             EventType.SHAKE -> "别摇我"
-            EventType.IMPACT -> "好痛！轻一点"
+            EventType.IMPACT -> "好痛！轻一点拍"
         }
 
         /** 事件类型的可读中文名 */
@@ -61,7 +61,7 @@ data class EventConfig(
             EventType.CHARGE_START -> "开始充电"
             EventType.LOW_BATTERY -> "电量低"
             EventType.SHAKE -> "摇晃手机"
-            EventType.IMPACT -> "撞击"
+            EventType.IMPACT -> "拍击"
         }
     }
 }

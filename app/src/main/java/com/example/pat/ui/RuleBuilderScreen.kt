@@ -18,6 +18,7 @@ import com.example.pat.model.UserRule
 /**
  * 规则构建器 —— 创建/编辑用户自定义事件规则。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RuleBuilderScreen(
     existingRule: UserRule?,
@@ -52,7 +53,7 @@ fun RuleBuilderScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(24.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
             .verticalScroll(rememberScrollState())
     ) {
         // ── 标题栏 ──
@@ -61,7 +62,7 @@ fun RuleBuilderScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onBack) { Text("< 返回") }
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = if (isEditing) "编辑规则" else "创建新规则",
                 style = MaterialTheme.typography.titleMedium,
@@ -69,7 +70,7 @@ fun RuleBuilderScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // ── 规则名称 ──
         OutlinedTextField(
@@ -81,15 +82,11 @@ fun RuleBuilderScreen(
             modifier = Modifier.fillMaxWidth()
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // ── 触发条件 ──
-        Text(
-            text = "触发条件",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+        Text("触发条件", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(4.dp))
 
         conditions.forEachIndexed { index, clause ->
             ConditionRow(
@@ -105,48 +102,42 @@ fun RuleBuilderScreen(
             Spacer(modifier = Modifier.height(4.dp))
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
         TextButton(onClick = {
             conditions = conditions.toMutableList().also { it.add(ConditionClause(AtomicEventType.SHAKE)) }
         }) {
             Text("+ 添加条件")
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // ── 组合方式 ──
-        Text(
-            text = "组合方式",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold
-        )
+        Text("组合方式", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(4.dp))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             ConditionOperator.entries.forEach { op ->
                 FilterChip(
                     selected = operator == op,
                     onClick = { operator = op },
                     label = {
-                        Text(when (op) {
-                            ConditionOperator.AND -> "全部满足 (AND)"
-                            ConditionOperator.OR -> "任意满足 (OR)"
-                            ConditionOperator.SEQUENCE -> "按顺序 (SEQ)"
-                        })
+                        Text(
+                            when (op) {
+                                ConditionOperator.AND -> "全部(AND)"
+                                ConditionOperator.OR -> "任意(OR)"
+                                ConditionOperator.SEQUENCE -> "顺序(SEQ)"
+                            },
+                            style = MaterialTheme.typography.labelSmall
+                        )
                     }
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // ── 时间窗口 ──
-        Text(
-            text = "时间窗口: ${timeWindowSec.toInt()} 秒",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold
-        )
+        Text("时间窗口: ${timeWindowSec.toInt()} 秒内完成",
+            style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         Slider(
             value = timeWindowSec,
             onValueChange = { timeWindowSec = it },
@@ -155,14 +146,10 @@ fun RuleBuilderScreen(
             modifier = Modifier.fillMaxWidth()
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // ── 优先级 ──
-        Text(
-            text = "优先级: ${priority.toInt()}",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold
-        )
+        Text("优先级: ${priority.toInt()}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         Slider(
             value = priority,
             onValueChange = { priority = it },
@@ -171,14 +158,11 @@ fun RuleBuilderScreen(
             modifier = Modifier.fillMaxWidth()
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         // ── 冷却时间 ──
-        Text(
-            text = "最小触发间隔: ${minIntervalMinutes.toInt()} 分钟",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold
-        )
+        Text("最小触发间隔: ${minIntervalMinutes.toInt()} 分钟",
+            style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         Slider(
             value = minIntervalMinutes,
             onValueChange = { minIntervalMinutes = it },
@@ -187,7 +171,7 @@ fun RuleBuilderScreen(
             modifier = Modifier.fillMaxWidth()
         )
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // ── 保存按钮 ──
         Button(
@@ -212,11 +196,14 @@ fun RuleBuilderScreen(
             Text("保存规则", style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(vertical = 4.dp))
         }
+
+        // 底部留白，防止保存按钮被导航栏遮挡
+        Spacer(modifier = Modifier.height(32.dp))
     }
 }
 
 /**
- * 单个条件编辑行。
+ * 单个条件编辑行。紧凑布局适配小屏手机。
  */
 @Composable
 private fun ConditionRow(
@@ -227,38 +214,44 @@ private fun ConditionRow(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 事件类型选择
-                var expanded by remember { mutableStateOf(false) }
+                var typeExpanded by remember { mutableStateOf(false) }
                 Box(modifier = Modifier.weight(1f)) {
                     OutlinedButton(
-                        onClick = { expanded = true },
-                        modifier = Modifier.fillMaxWidth()
+                        onClick = { typeExpanded = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) {
-                        Text(clause.eventType.displayName, maxLines = 1)
+                        Text(clause.eventType.displayName, maxLines = 1,
+                            style = MaterialTheme.typography.bodySmall)
                     }
                     DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false }
+                        expanded = typeExpanded,
+                        onDismissRequest = { typeExpanded = false }
                     ) {
                         AtomicEventType.entries.forEach { type ->
                             DropdownMenuItem(
-                                text = { Text("${type.displayName} — ${type.description}") },
+                                text = {
+                                    Column {
+                                        Text(type.displayName, style = MaterialTheme.typography.bodyMedium)
+                                        Text(type.description, style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                },
                                 onClick = {
                                     onUpdate(clause.copy(
                                         eventType = type,
                                         operator = if (type.hasValue) ConditionClause.CompareOp.LESS_THAN else null,
                                         value = if (type.hasValue) clause.value else null
                                     ))
-                                    expanded = false
+                                    typeExpanded = false
                                 }
                             )
                         }
@@ -274,14 +267,19 @@ private fun ConditionRow(
                         val c = s.filter { it.isDigit() }.toIntOrNull() ?: 1
                         onUpdate(clause.copy(count = c.coerceIn(1, 99)))
                     },
-                    modifier = Modifier.width(56.dp),
+                    modifier = Modifier.width(48.dp),
                     singleLine = true,
-                    label = { Text("次") }
+                    label = { Text("次", style = MaterialTheme.typography.labelSmall) },
+                    textStyle = MaterialTheme.typography.bodySmall
                 )
 
                 // 删除
                 if (canRemove) {
-                    TextButton(onClick = onRemove) { Text("✕") }
+                    IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+                        Text("✕", style = MaterialTheme.typography.labelSmall)
+                    }
+                } else {
+                    Spacer(modifier = Modifier.width(32.dp))
                 }
             }
 
@@ -292,7 +290,10 @@ private fun ConditionRow(
                     // 比较符
                     var opExpanded by remember { mutableStateOf(false) }
                     Box {
-                        TextButton(onClick = { opExpanded = true }) {
+                        TextButton(
+                            onClick = { opExpanded = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
                             Text(clause.operator?.symbol ?: "<")
                         }
                         DropdownMenu(
@@ -318,10 +319,13 @@ private fun ConditionRow(
                             val v = s.filter { it.isDigit() }.toIntOrNull()
                             onUpdate(clause.copy(value = v))
                         },
-                        modifier = Modifier.width(72.dp),
+                        modifier = Modifier.width(64.dp),
                         singleLine = true,
-                        label = { Text("值") }
+                        label = { Text("值", style = MaterialTheme.typography.labelSmall) },
+                        textStyle = MaterialTheme.typography.bodySmall
                     )
+
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     Text(
                         text = when (clause.eventType) {

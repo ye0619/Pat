@@ -17,8 +17,8 @@ enum class AtomicEventType(
     val description: String,
     val hasValue: Boolean = false
 ) {
-    SHAKE("摇晃", "加速度计检测到设备摇晃"),
-    IMPACT("撞击", "加速度计检测到瞬时高加速度冲击"),
+    SHAKE("摇晃手机", "加速度计检测到设备摇晃"),
+    IMPACT("拍击手机", "用手指或物体敲击手机背部/屏幕（加速度计检测）"),
     DROP("跌落", "设备经历自由落体后撞击"),
     SCREEN_ON("屏幕亮起", "屏幕被点亮或解锁"),
     SCREEN_OFF("屏幕关闭", "屏幕被关闭"),
