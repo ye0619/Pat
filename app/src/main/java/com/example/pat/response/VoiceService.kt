@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
 import android.util.Log
+import com.example.pat.audio.AudioPlaybackState
 import java.io.File
 
 /**
@@ -88,6 +89,7 @@ class VoiceService(
 
                 prepare()
                 start()
+                AudioPlaybackState.onStart(context, File(path).name, this)
                 Log.i(TAG, "Playing: $path")
             }
         } catch (e: Exception) {
@@ -114,6 +116,7 @@ class VoiceService(
             Log.w(TAG, "Error releasing MediaPlayer", e)
         }
         mediaPlayer = null
+        AudioPlaybackState.onStop()
     }
 
     companion object {

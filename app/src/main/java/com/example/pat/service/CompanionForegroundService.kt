@@ -160,6 +160,10 @@ class CompanionForegroundService : Service() {
         when (intent?.action) {
             ACTION_START_SENSOR -> { startSensors(); return START_STICKY }
             ACTION_STOP_SENSOR -> { stopSensors(); return START_STICKY }
+            ACTION_STOP_AUDIO -> {
+                com.example.pat.audio.AudioPlaybackState.onStop()
+                return START_STICKY
+            }
         }
 
         try {
@@ -337,5 +341,6 @@ class CompanionForegroundService : Service() {
         private const val NOTIFICATION_ID = 1001
         const val ACTION_START_SENSOR = "com.example.pat.START_SENSOR"
         const val ACTION_STOP_SENSOR = "com.example.pat.STOP_SENSOR"
+        const val ACTION_STOP_AUDIO = "com.example.pat.STOP_AUDIO"
     }
 }

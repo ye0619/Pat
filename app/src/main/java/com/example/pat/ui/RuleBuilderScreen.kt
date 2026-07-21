@@ -254,13 +254,28 @@ private fun ConditionRow(
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) { Text(clause.eventType.displayName, maxLines = 1, style = MaterialTheme.typography.bodySmall) }
                     DropdownMenu(typeExpanded, { typeExpanded = false }) {
-                        AtomicEventType.entries.forEach { type ->
+                        // 过滤：自定义规则中不显示 IMPACT（由 CLICK 替代）
+                        AtomicEventType.entries
+                            .filter { it != AtomicEventType.IMPACT }
+                            .forEach { type ->
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text(type.displayName, style = MaterialTheme.typography.bodyMedium)
-                                        Text(type.description, style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(type.displayName, style = MaterialTheme.typography.bodyMedium)
+                                            if (type.requiresAccessibility) {
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("不推荐", style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.error)
+                                            }
+                                        }
+                                        Text(
+                                            if (type.requiresAccessibility)
+                                                "需在 设置→无障碍 中手动开启，影响性能"
+                                            else type.description,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 },
                                 onClick = {

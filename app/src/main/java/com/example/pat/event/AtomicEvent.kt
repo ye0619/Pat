@@ -76,6 +76,9 @@ sealed class AtomicEvent {
         override val timestamp: Long,
         val hour: Int
     ) : AtomicEvent()
+
+    /** 屏幕点击（需要无障碍服务，默认关闭） */
+    data class Click(override val timestamp: Long) : AtomicEvent()
 }
 
 /**
@@ -92,4 +95,5 @@ fun AtomicEvent.toType(): AtomicEventType = when (this) {
     is AtomicEvent.BatteryLevel -> AtomicEventType.BATTERY_LEVEL
     is AtomicEvent.LongUsage -> AtomicEventType.LONG_USAGE
     is AtomicEvent.LateNight -> AtomicEventType.LATE_NIGHT
+    is AtomicEvent.Click -> AtomicEventType.CLICK
 }

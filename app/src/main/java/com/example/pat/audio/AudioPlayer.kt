@@ -94,6 +94,7 @@ class AudioPlayer(
 
                 prepare()
                 start()
+                AudioPlaybackState.onStart(context, assetPath, this)
                 Log.i(TAG, "Playing preset audio: $assetPath")
             }
         } catch (e: IOException) {
@@ -135,6 +136,7 @@ class AudioPlayer(
             Log.w(TAG, "Error releasing MediaPlayer", e)
         }
         mediaPlayer = null
+        AudioPlaybackState.onStop()
     }
 
     companion object {

@@ -45,6 +45,19 @@
                 android:value="device_state_monitoring_for_context_aware_companion" />
         </service>
 
+        <!-- 点击检测无障碍服务（默认关闭，不推荐开启） -->
+        <service
+            android:name=".service.ClickAccessibilityService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <!-- 开机自启动接收器 -->
         <receiver
             android:name=".service.CompanionBootReceiver"

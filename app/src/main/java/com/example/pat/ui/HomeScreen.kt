@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.example.pat.audio.AudioPlaybackState
 import com.example.pat.engine.EventDispatcher.RecentTrigger
 import com.example.pat.event.EventType
 import com.example.pat.ui.theme.PatTheme
@@ -78,6 +79,38 @@ fun HomeScreen(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
+
+        // ── 音频播放状态 ──
+        val isAudioPlaying by AudioPlaybackState.isPlaying.collectAsState()
+        val audioName by AudioPlaybackState.currentName.collectAsState()
+        if (isAudioPlaying) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("正在播放", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text(audioName, style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
+                    }
+                    IconButton(onClick = { AudioPlaybackState.togglePause() }) {
+                        Text("⏯", style = MaterialTheme.typography.titleMedium)
+                    }
+                    IconButton(onClick = { AudioPlaybackState.onStop() }) {
+                        Text("⏹", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
         // ── 通知设置引导（国内 ROM 常需手动开启悬浮通知） ──
         val context = LocalContext.current

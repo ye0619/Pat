@@ -14,7 +14,9 @@ enum class AtomicEventType(
     val description: String,
     val hasValue: Boolean = false,
     val supportsCount: Boolean = true,
-    val supportsTimeRange: Boolean = false
+    val supportsTimeRange: Boolean = false,
+    /** 是否需要无障碍服务（默认 false） */
+    val requiresAccessibility: Boolean = false
 ) {
     SHAKE("摇晃手机", "加速度计检测到设备摇晃"),
     IMPACT("拍击手机", "用手指敲击手机背部/屏幕"),
@@ -25,5 +27,6 @@ enum class AtomicEventType(
     CHARGE_STOP("停止充电", "断开了充电器", supportsCount = false),
     BATTERY_LEVEL("电量变化", "电量百分比发生变化", hasValue = true, supportsCount = false),
     LONG_USAGE("长时间使用", "累计亮屏时间超过阈值", hasValue = true, supportsCount = false),
-    LATE_NIGHT("时间段使用", "在指定时间段内使用手机", supportsCount = false, supportsTimeRange = true)
+    LATE_NIGHT("时间段使用", "在指定时间段内使用手机", supportsCount = false, supportsTimeRange = true),
+    CLICK("点击屏幕 ⚠️", "检测屏幕点击（需开启无障碍服务）", supportsCount = true, requiresAccessibility = true)
 }
