@@ -14,6 +14,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.example.pat.data.EventConfigRepository
 import com.example.pat.data.PresetRepository
+import com.example.pat.event.DeviceEvent
+import com.example.pat.event.EventBus
 import com.example.pat.model.EventConfig
 import com.example.pat.service.CompanionForegroundService
 import com.example.pat.ui.EditEventScreen
@@ -74,6 +76,21 @@ class MainActivity : ComponentActivity() {
                             onNavigateToEventList = {
                                 configs = configRepository.loadAll()
                                 currentScreen = Screen.EventList
+                            },
+                            onTestEvent = { eventType ->
+                                val testEvent = when (eventType) {
+                                    com.example.pat.event.EventType.SCREEN_LONG_USAGE ->
+                                        DeviceEvent.LongUsage(minutes = 999)
+                                    com.example.pat.event.EventType.CHARGE_START ->
+                                        DeviceEvent.ChargeStart
+                                    com.example.pat.event.EventType.LOW_BATTERY ->
+                                        DeviceEvent.LowBattery
+                                    com.example.pat.event.EventType.SHAKE ->
+                                        DeviceEvent.Shake
+                                    com.example.pat.event.EventType.IMPACT ->
+                                        DeviceEvent.Impact(intensity = 1.0f)
+                                }
+                                EventBus.tryEmit(testEvent)
                             },
                             modifier = Modifier.fillMaxSize()
                         )

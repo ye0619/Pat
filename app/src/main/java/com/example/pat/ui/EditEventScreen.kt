@@ -46,6 +46,10 @@ fun EditEventScreen(
     var threshold by remember { mutableFloatStateOf(config.threshold.toFloat()) }
     var selectedPresetId by remember { mutableStateOf(config.presetId) }
     var notificationEnabled by remember { mutableStateOf(config.notificationEnabled) }
+    var vibrationEnabled by remember { mutableStateOf(config.vibrationEnabled) }
+    var soundEnabled by remember { mutableStateOf(config.soundEnabled) }
+    var showHeadsUp by remember { mutableStateOf(config.showHeadsUp) }
+    var lockScreenPublic by remember { mutableStateOf(config.lockScreenPublic) }
     var minIntervalMinutes by remember { mutableFloatStateOf(config.minIntervalMinutes.toFloat()) }
 
     // ── 可用预设列表 ──
@@ -217,18 +221,69 @@ fun EditEventScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // ── 通知开关 ──
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text("通知", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                Text("事件触发时发送通知", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // ── 通知设置 ──
+        Text(
+            text = "通知设置",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp)) {
+
+                // 通知总开关
+                NotificationSwitchRow(
+                    label = "通知总开关",
+                    description = "事件触发时发送通知",
+                    checked = notificationEnabled,
+                    onCheckedChange = { notificationEnabled = it }
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // 弹窗横幅
+                NotificationSwitchRow(
+                    label = "弹窗横幅",
+                    description = "屏幕顶部弹出横幅提醒",
+                    checked = showHeadsUp,
+                    onCheckedChange = { showHeadsUp = it },
+                    enabled = notificationEnabled
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // 播放声音
+                NotificationSwitchRow(
+                    label = "播放声音",
+                    description = "系统通知提示音",
+                    checked = soundEnabled,
+                    onCheckedChange = { soundEnabled = it },
+                    enabled = notificationEnabled
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // 震动
+                NotificationSwitchRow(
+                    label = "开启震动",
+                    description = "通知时震动（默认关闭）",
+                    checked = vibrationEnabled,
+                    onCheckedChange = { vibrationEnabled = it },
+                    enabled = notificationEnabled
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // 锁屏显示
+                NotificationSwitchRow(
+                    label = "锁屏显示内容",
+                    description = "锁屏时显示通知详情",
+                    checked = lockScreenPublic,
+                    onCheckedChange = { lockScreenPublic = it },
+                    enabled = notificationEnabled
+                )
             }
-            Switch(checked = notificationEnabled, onCheckedChange = { notificationEnabled = it })
         }
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -264,6 +319,10 @@ fun EditEventScreen(
                         threshold = threshold.toInt(),
                         presetId = selectedPresetId,
                         notificationEnabled = notificationEnabled,
+                        vibrationEnabled = vibrationEnabled,
+                        soundEnabled = soundEnabled,
+                        showHeadsUp = showHeadsUp,
+                        lockScreenPublic = lockScreenPublic,
                         minIntervalMinutes = minIntervalMinutes.toInt()
                     )
                 )
@@ -318,6 +377,48 @@ private fun PresetRadioRow(
         if (preset.audioAssetPath.isNotBlank()) {
             TextButton(onClick = onPreview) { Text("试听") }
         }
+    }
+}
+
+/**
+ * 通知设置开关行 —— 标签 + 描述 + Switch。
+ */
+@Composable
+private fun NotificationSwitchRow(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = if (enabled)
+                    MaterialTheme.colorScheme.onSurface
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(
+            checked = checked && enabled,
+            onCheckedChange = { if (enabled) onCheckedChange(it) },
+            enabled = enabled
+        )
     }
 }
 

@@ -25,7 +25,15 @@ data class EventConfig(
     val threshold: Int = defaultThreshold(eventType),
     val presetId: String = "",
     val notificationEnabled: Boolean = true,
-    val minIntervalMinutes: Int = 10
+    val minIntervalMinutes: Int = 10,
+    /** 通知时是否震动（默认关闭） */
+    val vibrationEnabled: Boolean = false,
+    /** 通知时是否播放系统通知音效（默认关闭） */
+    val soundEnabled: Boolean = false,
+    /** 是否以 Heads-up 横幅显示（关闭则仅静默出现在通知栏） */
+    val showHeadsUp: Boolean = true,
+    /** 锁屏时是否显示通知内容（关闭则锁屏仅显示图标） */
+    val lockScreenPublic: Boolean = true
 ) {
     companion object {
 

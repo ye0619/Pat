@@ -1,11 +1,12 @@
 package com.example.pat.ui
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -13,6 +14,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.pat.engine.EventDispatcher.RecentTrigger
+import com.example.pat.event.EventType
 import com.example.pat.ui.theme.PatTheme
 import java.text.SimpleDateFormat
 import java.util.*
@@ -32,6 +34,7 @@ fun HomeScreen(
     todayTriggerCount: Int,
     recentTriggers: List<RecentTrigger>,
     onNavigateToEventList: () -> Unit,
+    onTestEvent: ((EventType) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -141,6 +144,77 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // ── 测试通知 ──
+        if (onTestEvent != null) {
+            var testExpanded by remember { mutableStateOf(false) }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .animateContentSize(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { testExpanded = !testExpanded },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "🧪 测试通知",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Text(
+                            text = if (testExpanded) "收起 ▲" else "展开 ▼",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+
+                    if (testExpanded) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "点击按钮直接触发事件通知，用于验证通知横幅、声音和震动是否正常。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TestButton("长时间使用", onClick = { onTestEvent(EventType.SCREEN_LONG_USAGE) })
+                            TestButton("充电", onClick = { onTestEvent(EventType.CHARGE_START) })
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TestButton("低电量", onClick = { onTestEvent(EventType.LOW_BATTERY) })
+                            TestButton("摇晃", onClick = { onTestEvent(EventType.SHAKE) })
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TestButton("撞击", onClick = { onTestEvent(EventType.IMPACT) })
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
         // ── 事件管理入口 ──
         Button(
             onClick = onNavigateToEventList,
@@ -185,6 +259,19 @@ private fun RecentTriggerRow(trigger: RecentTrigger) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+@Composable
+private fun RowScope.TestButton(label: String, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.weight(1f),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+        )
+    ) {
+        Text(text = label, style = MaterialTheme.typography.labelMedium)
     }
 }
 

@@ -79,11 +79,15 @@ class ResponseManager(
         val audioPath = preset?.audioAssetPath ?: ""
         val audioType = preset?.audioType ?: AudioType.PRESET
 
-        // 1. 通知反馈
+        // 1. 通知反馈（Heads-up + 声音 + 震动，全部由用户偏好控制）
         if (config.notificationEnabled && displayText.isNotBlank()) {
             notificationService.show(
                 title = "Pat",
-                text = displayText
+                text = displayText,
+                enableSound = config.soundEnabled,
+                enableVibration = config.vibrationEnabled,
+                showHeadsUp = config.showHeadsUp,
+                lockScreenPublic = config.lockScreenPublic
             )
         }
 

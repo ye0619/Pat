@@ -91,7 +91,11 @@ class EventConfigRepository(
                 threshold = EventConfig.defaultThreshold(type),
                 presetId = firstPreset?.id ?: "",
                 notificationEnabled = true,
-                minIntervalMinutes = 10
+                minIntervalMinutes = 10,
+                vibrationEnabled = false,   // 震动默认关闭
+                soundEnabled = false,     // 声音默认关闭
+                showHeadsUp = true,
+                lockScreenPublic = true
             )
         }
     }
@@ -107,6 +111,10 @@ class EventConfigRepository(
                 put("presetId", config.presetId)
                 put("notificationEnabled", config.notificationEnabled)
                 put("minIntervalMinutes", config.minIntervalMinutes)
+                put("vibrationEnabled", config.vibrationEnabled)
+                put("soundEnabled", config.soundEnabled)
+                put("showHeadsUp", config.showHeadsUp)
+                put("lockScreenPublic", config.lockScreenPublic)
             })
         }
         return array.toString()
@@ -130,7 +138,16 @@ class EventConfigRepository(
                     threshold = obj.optInt("threshold", EventConfig.defaultThreshold(eventType)),
                     presetId = obj.optString("presetId", ""),
                     notificationEnabled = obj.optBoolean("notificationEnabled", true),
-                    minIntervalMinutes = obj.optInt("minIntervalMinutes", 10)
+                    minIntervalMinutes = obj.optInt("minIntervalMinutes", 10),
+                    // optBoolean 对不存在的 key 返回 false，新字段需手动处理默认值
+                    vibrationEnabled = if (obj.has("vibrationEnabled"))
+                        obj.optBoolean("vibrationEnabled") else false,
+                    soundEnabled = if (obj.has("soundEnabled"))
+                        obj.optBoolean("soundEnabled") else false,
+                    showHeadsUp = if (obj.has("showHeadsUp"))
+                        obj.optBoolean("showHeadsUp") else true,
+                    lockScreenPublic = if (obj.has("lockScreenPublic"))
+                        obj.optBoolean("lockScreenPublic") else true
                 )
             )
         }
