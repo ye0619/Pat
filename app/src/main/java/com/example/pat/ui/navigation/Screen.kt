@@ -16,9 +16,6 @@ sealed class Screen {
     /** 编辑事件规则（事件类型 + 阈值 + 预设选择） */
     data class EditEvent(val eventType: EventType) : Screen()
 
-    /** 预设测试页 */
-    data object PresetTest : Screen()
-
     /** 编辑/创建自定义预设（关联到某个事件类型） */
     data class EditPreset(
         val eventType: EventType,

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.example.pat.data.EventConfigRepository
@@ -21,7 +20,6 @@ import com.example.pat.ui.EditEventScreen
 import com.example.pat.ui.EventListScreen
 import com.example.pat.ui.HomeScreen
 import com.example.pat.ui.PresetEditScreen
-import com.example.pat.ui.PresetTestScreen
 import com.example.pat.ui.navigation.Screen
 import com.example.pat.ui.theme.PatTheme
 import com.example.pat.util.PermissionManager
@@ -76,9 +74,6 @@ class MainActivity : ComponentActivity() {
                             onNavigateToEventList = {
                                 configs = configRepository.loadAll()
                                 currentScreen = Screen.EventList
-                            },
-                            onNavigateToPresetTest = {
-                                currentScreen = Screen.PresetTest
                             },
                             modifier = Modifier.fillMaxSize()
                         )
@@ -169,18 +164,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    is Screen.PresetTest -> {
-                        val service = CompanionForegroundServiceHolder.instance
-                        val groupedPresets = remember {
-                            val repo = service?.presetRepo ?: presetRepository
-                            repo.getGroupedByEventType()
-                        }
-                        PresetTestScreen(
-                            groupedPresets = groupedPresets,
-                            onBack = { currentScreen = Screen.Home },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
                 }
             }
         }

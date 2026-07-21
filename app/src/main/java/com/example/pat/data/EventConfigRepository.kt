@@ -90,7 +90,8 @@ class EventConfigRepository(
                 enabled = true,
                 threshold = EventConfig.defaultThreshold(type),
                 presetId = firstPreset?.id ?: "",
-                notificationEnabled = true
+                notificationEnabled = true,
+                minIntervalMinutes = 10
             )
         }
     }
@@ -105,6 +106,7 @@ class EventConfigRepository(
                 put("threshold", config.threshold)
                 put("presetId", config.presetId)
                 put("notificationEnabled", config.notificationEnabled)
+                put("minIntervalMinutes", config.minIntervalMinutes)
             })
         }
         return array.toString()
@@ -127,7 +129,8 @@ class EventConfigRepository(
                     enabled = obj.optBoolean("enabled", true),
                     threshold = obj.optInt("threshold", EventConfig.defaultThreshold(eventType)),
                     presetId = obj.optString("presetId", ""),
-                    notificationEnabled = obj.optBoolean("notificationEnabled", true)
+                    notificationEnabled = obj.optBoolean("notificationEnabled", true),
+                    minIntervalMinutes = obj.optInt("minIntervalMinutes", 10)
                 )
             )
         }

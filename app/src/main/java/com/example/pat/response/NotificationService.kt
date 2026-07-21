@@ -11,15 +11,12 @@ import androidx.core.app.NotificationCompat
 import com.example.pat.MainActivity
 
 /**
- * 通知服务 —— 发送事件反馈通知。
- *
- * 使用独立的通知渠道（区分于前台服务的常驻通知）。
- * 通知内容来自用户配置的反馈文本。
+ * 通知服务 —— 发送事件反馈通知（Heads-up 弹窗风格，类似微信消息）。
  *
  * 特点：
- * - 用户可设置是否显示通知
+ * - 使用 IMPORTANCE_HIGH 渠道，确保以 Heads-up 弹窗形式显示
  * - 点击通知打开主界面
- * - 低优先级，不打扰用户
+ * - 自动消失（autoCancel）
  *
  * 参考文档：原始规范 8. 通知系统
  */
@@ -34,10 +31,10 @@ class NotificationService(
     }
 
     /**
-     * 显示事件反馈通知。
+     * 显示事件反馈通知（Heads-up 弹窗风格）。
      *
      * @param title 通知标题
-     * @param text 通知内容（来自用户配置）
+     * @param text 通知内容（来自预设文本）
      */
     fun show(title: String, text: String) {
         val intent = Intent(context, MainActivity::class.java)
@@ -53,16 +50,17 @@ class NotificationService(
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setDefaults(android.app.Notification.DEFAULT_ALL)
             .build()
 
         notificationManager.notify(nextId(), notification)
-        Log.i(TAG, "Notification posted: \"$text\"")
+        Log.i(TAG, "Heads-up notification posted: \"$text\"")
     }
 
     /**
-     * 创建事件反馈通知渠道。
-     * 与前台服务通知渠道独立。
+     * 创建 HIGH 重要性通知渠道 —— 确保以弹窗形式显示。
      */
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -70,23 +68,22 @@ class NotificationService(
         val channel = NotificationChannel(
             CHANNEL_ID,
             CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = CHANNEL_DESCRIPTION
-            setShowBadge(false)
+            setShowBadge(true)
+            enableLights(true)
         }
         notificationManager.createNotificationChannel(channel)
     }
 
-    /** 自增通知 ID，避免覆盖 */
     private var notificationId = 2000
     private fun nextId(): Int = notificationId++
 
     companion object {
         private const val TAG = "NotificationService"
-
         const val CHANNEL_ID = "motionpet_events"
         const val CHANNEL_NAME = "MotionPet 反馈"
-        const val CHANNEL_DESCRIPTION = "MotionPet 事件反馈通知"
+        const val CHANNEL_DESCRIPTION = "MotionPet 事件反馈通知（弹窗提醒）"
     }
 }

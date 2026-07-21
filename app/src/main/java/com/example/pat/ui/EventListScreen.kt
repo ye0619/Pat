@@ -162,6 +162,14 @@ private fun EventConfigCard(
                 )
             }
 
+            // ── 最小触发间隔 ──
+            Text(
+                text = if (config.minIntervalMinutes > 0) "最小间隔: ${config.minIntervalMinutes}分钟"
+                       else "最小间隔: 无限制",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
             // ── 通知状态 ──
             Text(
                 text = "通知: ${if (config.notificationEnabled) "开启" else "关闭"}",

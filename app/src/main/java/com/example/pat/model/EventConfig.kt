@@ -8,18 +8,15 @@ import com.example.pat.event.EventType
  * 每个事件类型最多一条规则。
  * 规则通过 [presetId] 引用 [ReactionPreset] 获取反馈内容。
  *
- * 与旧版 [com.example.pat.config.EventConfig] 的区别：
- * - 移除了 text / voicePath 字段
- * - 新增 presetId 字段，解耦事件规则与反馈内容
- *
  * @property id 唯一标识符
  * @property eventType 事件类型
  * @property enabled 是否启用此事件监听
  * @property threshold 触发阈值（SCREEN_LONG_USAGE=分钟, LOW_BATTERY=百分比, 其他=0）
  * @property presetId 关联的 ReactionPreset.id（空字符串表示无预设）
  * @property notificationEnabled 是否发送通知
- *
- * 参考：目标架构 - EventConfig 数据模型
+ * @property minIntervalMinutes 最小触发间隔（分钟）。同一事件在此时间内不会重复触发。
+ *                              设为 0 表示无限制。默认为 10 分钟。
+ *                              当某一事件正在播放音频时，其他事件也会被阻止。
  */
 data class EventConfig(
     val id: String = "",
@@ -27,14 +24,15 @@ data class EventConfig(
     val enabled: Boolean = true,
     val threshold: Int = defaultThreshold(eventType),
     val presetId: String = "",
-    val notificationEnabled: Boolean = true
+    val notificationEnabled: Boolean = true,
+    val minIntervalMinutes: Int = 10
 ) {
     companion object {
 
         /** 默认阈值 */
         fun defaultThreshold(type: EventType): Int = when (type) {
-            EventType.SCREEN_LONG_USAGE -> 120  // 2小时
-            EventType.LOW_BATTERY -> 20          // 20%
+            EventType.SCREEN_LONG_USAGE -> 120
+            EventType.LOW_BATTERY -> 20
             EventType.CHARGE_START -> 0
             EventType.SHAKE -> 0
             EventType.IMPACT -> 0

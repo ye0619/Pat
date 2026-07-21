@@ -46,6 +46,7 @@ fun EditEventScreen(
     var threshold by remember { mutableFloatStateOf(config.threshold.toFloat()) }
     var selectedPresetId by remember { mutableStateOf(config.presetId) }
     var notificationEnabled by remember { mutableStateOf(config.notificationEnabled) }
+    var minIntervalMinutes by remember { mutableFloatStateOf(config.minIntervalMinutes.toFloat()) }
 
     // ── 可用预设列表 ──
     val availablePresets = remember {
@@ -230,6 +231,28 @@ fun EditEventScreen(
             Switch(checked = notificationEnabled, onCheckedChange = { notificationEnabled = it })
         }
 
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // ── 最小触发间隔 ──
+        Text(
+            text = "最小触发间隔: ${minIntervalMinutes.toInt()}分钟",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = "同一事件在此时间内不会重复触发。设为 0 表示每次检测都触发。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Slider(
+            value = minIntervalMinutes,
+            onValueChange = { minIntervalMinutes = it },
+            valueRange = 0f..60f,
+            steps = 11,  // 0, 5, 10, 15, ..., 60
+            modifier = Modifier.fillMaxWidth()
+        )
+
         Spacer(modifier = Modifier.height(32.dp))
 
         // ── 保存按钮 ──
@@ -240,7 +263,8 @@ fun EditEventScreen(
                         enabled = enabled,
                         threshold = threshold.toInt(),
                         presetId = selectedPresetId,
-                        notificationEnabled = notificationEnabled
+                        notificationEnabled = notificationEnabled,
+                        minIntervalMinutes = minIntervalMinutes.toInt()
                     )
                 )
             },

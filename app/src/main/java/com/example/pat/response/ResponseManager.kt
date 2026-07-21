@@ -4,26 +4,21 @@ import android.content.Context
 import android.util.Log
 import com.example.pat.audio.AudioPlayer
 import com.example.pat.data.PresetRepository
+import com.example.pat.model.AudioType
 import com.example.pat.model.EventConfig
 import com.example.pat.model.ReactionPreset
 
 /**
  * 反馈管理器 —— 协调所有反馈通道。
  *
+ * 关键保证：
+ * 1. **文本与音频一致**：通知文本和播放的音频始终来自同一个预设
+ * 2. **全局互斥**：同一时间只有一个事件在执行反馈，避免音频冲突
+ *
  * 数据流：EventConfig.presetId → PresetRepository.getById() → ReactionPreset → 执行
  *
- * 职责：
- * - 根据 [EventConfig.presetId] 从 [PresetRepository] 加载 [ReactionPreset]
- * - 执行通知反馈（使用 ReactionPreset.text）
- * - 执行语音反馈（使用 ReactionPreset.audioAssetPath）
- * - 无预设时回退到系统默认文本
- *
- * 反馈优先级：
- * 1. EventConfig 绑定的 ReactionPreset（用户选择的内置或自定义预设）
- * 2. 随机选择一个同事件类型的内置预设
- * 3. EventConfig.defaultText（纯文本回退）
- *
- * 参考：目标架构 - ResponseManager
+ * @property context Android Context
+ * @property presetRepository 预设仓库
  */
 class ResponseManager(
     private val context: Context,
@@ -33,30 +28,56 @@ class ResponseManager(
     private val voiceService = VoiceService(context)
     private val audioPlayer = AudioPlayer(context)
 
+    /** 全局反馈执行锁 —— 防止多个事件同时播放音频 */
+    @Volatile
+    private var isExecuting = false
+
     /**
      * 根据事件规则执行反馈。
      *
-     * 流程：
-     * 1. 通过 presetId 加载 ReactionPreset
-     * 2. 通知：使用 preset.text 或随机预设或默认文本
-     * 3. 语音：播放 preset.audioAssetPath 或随机预设音频
+     * 统一解析一个 ReactionPreset，保证文本和音频来源一致：
+     * 1. 优先使用 EventConfig.presetId 对应的预设
+     * 2. 无预设时随机选择一个同事件类型的内置预设
+     * 3. 仍无预设时使用系统默认文本（无音频）
      *
      * @param config 匹配的事件规则
+     * @return 是否实际执行了反馈（被全局锁阻止时返回 false）
      */
-    fun execute(config: EventConfig) {
+    fun execute(config: EventConfig): Boolean {
+        // ── 全局互斥检查 ──
+        if (isExecuting) {
+            Log.i(TAG, "Another event is being processed — skipping ${config.eventType.name}")
+            return false
+        }
+        synchronized(this) {
+            if (isExecuting) return false
+            isExecuting = true
+        }
+
+        try {
+            executeInternal(config)
+            return true
+        } finally {
+            isExecuting = false
+        }
+    }
+
+    /**
+     * 内部执行逻辑 —— 文本和音频始终来自同一个预设。
+     */
+    private fun executeInternal(config: EventConfig) {
         Log.i(TAG, "Executing response for: ${config.eventType.name} (presetId=${config.presetId})")
 
-        // ── 解析预设 ──
-        val selectedPreset = resolvePreset(config)
+        // ── 统一解析一个预设（保证文本与音频来源一致） ──
+        val preset: ReactionPreset? = resolvePreset(config)
+            ?: presetRepository.getRandom(config.eventType)
 
-        // ── 确定反馈文本 ──
-        val displayText = selectedPreset?.text
-            ?: presetRepository.getRandom(config.eventType)?.text
+        // 文本和音频都来自同一个 preset
+        val displayText = preset?.text
             ?: EventConfig.defaultText(config.eventType)
 
-        val audioPath = selectedPreset?.audioAssetPath
-            ?: presetRepository.getRandom(config.eventType)?.audioAssetPath
-            ?: ""
+        val audioPath = preset?.audioAssetPath ?: ""
+        val audioType = preset?.audioType ?: AudioType.PRESET
 
         // 1. 通知反馈
         if (config.notificationEnabled && displayText.isNotBlank()) {
@@ -68,14 +89,14 @@ class ResponseManager(
 
         // 2. 语音反馈
         if (audioPath.isNotBlank()) {
-            if (selectedPreset?.audioType == com.example.pat.model.AudioType.CUSTOM) {
-                // 用户自定义音频（可能是文件路径）
+            if (audioType == AudioType.CUSTOM && (audioPath.startsWith("/") || audioPath.startsWith(context.filesDir.absolutePath))) {
                 voiceService.play(audioPath)
             } else {
-                // 内置预设音频（assets 中）
                 audioPlayer.playAsset(audioPath)
             }
         }
+
+        Log.i(TAG, "Response executed: text=\"$displayText\" audio=\"$audioPath\"")
     }
 
     /**
@@ -101,6 +122,9 @@ class ResponseManager(
         voiceService.stop()
         audioPlayer.stop()
     }
+
+    /** 查询当前是否有事件正在执行 */
+    val isBusy: Boolean get() = isExecuting
 
     companion object {
         private const val TAG = "ResponseManager"
