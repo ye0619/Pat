@@ -4,21 +4,24 @@ import com.example.pat.event.EventType
 
 /**
  * 应用内页面导航状态。
- *
- * 使用简单的 sealed class 管理页面栈，
- * 无需引入 Navigation Compose 库。
  */
 sealed class Screen {
 
-    /** 首页 —— 运行状态 + 今日统计 */
+    /** 首页 */
     data object Home : Screen()
 
-    /** 事件列表页 —— 所有可配置事件 */
+    /** 事件列表页 */
     data object EventList : Screen()
 
-    /** 编辑页 —— 编辑单个事件的配置 */
+    /** 编辑事件规则（事件类型 + 阈值 + 预设选择） */
     data class EditEvent(val eventType: EventType) : Screen()
 
-    /** 预设测试页 —— 查看和试听所有内置预设 */
+    /** 预设测试页 */
     data object PresetTest : Screen()
+
+    /** 编辑/创建自定义预设（关联到某个事件类型） */
+    data class EditPreset(
+        val eventType: EventType,
+        val presetId: String? = null  // null = 新建
+    ) : Screen()
 }

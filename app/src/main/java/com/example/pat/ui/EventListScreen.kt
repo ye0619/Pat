@@ -6,33 +6,32 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.pat.config.EventConfig
+import com.example.pat.data.PresetRepository
 import com.example.pat.event.EventType
+import com.example.pat.model.EventConfig
+import com.example.pat.model.ReactionPreset
 import com.example.pat.ui.theme.PatTheme
 
 /**
- * 事件管理列表页。
+ * 事件管理列表页 —— 展示所有事件规则及其关联的反馈预设。
  *
- * 显示所有可配置事件类型，每个条目包含：
- * - 事件名称
- * - 启用/禁用开关
- * - 阈值（如有）
- * - 反馈文本预览
+ * 每个条目显示：
+ * - 事件名称 + 启用状态
+ * - 触发条件（阈值）
+ * - 关联的反馈预设（文本 + 语音）
+ * - 通知开关
  * - 编辑按钮
  */
 @Composable
 fun EventListScreen(
     configs: List<EventConfig>,
+    presetRepository: PresetRepository?,
     onToggleEnabled: (EventConfig) -> Unit,
     onEditClick: (EventType) -> Unit,
     onBack: () -> Unit,
@@ -48,9 +47,7 @@ fun EventListScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(onClick = onBack) {
-                Text("< 返回")
-            }
+            TextButton(onClick = onBack) { Text("< 返回") }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "事件管理",
@@ -61,13 +58,14 @@ fun EventListScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ── 事件列表 ──
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(configs) { config ->
+                val preset = config.presetId.let { id ->
+                    if (id.isNotBlank()) presetRepository?.getById(id) else null
+                }
                 EventConfigCard(
                     config = config,
+                    preset = preset,
                     onToggleEnabled = { onToggleEnabled(config.copy(enabled = it)) },
                     onEditClick = { onEditClick(config.eventType) }
                 )
@@ -79,6 +77,7 @@ fun EventListScreen(
 @Composable
 private fun EventConfigCard(
     config: EventConfig,
+    preset: ReactionPreset?,
     onToggleEnabled: (Boolean) -> Unit,
     onEditClick: () -> Unit
 ) {
@@ -92,11 +91,9 @@ private fun EventConfigCard(
         )
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
+            modifier = Modifier.fillMaxWidth().padding(16.dp)
         ) {
-            // 标题行：名称 + 开关
+            // ── 标题行：名称 + 开关 ──
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -107,56 +104,79 @@ private fun EventConfigCard(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
-                    // 显示阈值（如有）
-                    if (config.threshold > 0 && config.eventType == EventType.SCREEN_LONG_USAGE) {
-                        Text(
-                            text = "阈值: ${config.threshold}分钟",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (config.threshold > 0 && config.eventType == EventType.LOW_BATTERY) {
-                        Text(
-                            text = "阈值: ${config.threshold}%",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    // 状态
+                    Text(
+                        text = "状态: ${if (config.enabled) "开启" else "关闭"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                Switch(
-                    checked = config.enabled,
-                    onCheckedChange = onToggleEnabled
-                )
+                Switch(checked = config.enabled, onCheckedChange = onToggleEnabled)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 反馈文本预览
+            // ── 触发条件 ──
+            val conditionText = when (config.eventType) {
+                EventType.SCREEN_LONG_USAGE -> "连续使用 ${config.threshold}分钟"
+                EventType.LOW_BATTERY -> "电量低于 ${config.threshold}%"
+                else -> "触发即响应"
+            }
             Text(
-                text = "反馈: ${config.text}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                text = "触发条件: $conditionText",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // 语音状态
-            if (config.voicePath.isNotBlank()) {
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // ── 反馈预设信息 ──
+            if (preset != null) {
                 Text(
-                    text = "语音: 已上传",
+                    text = "反馈: ${preset.text}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val audioLabel = when {
+                    preset.audioAssetPath.isNotBlank() -> "语音: ${preset.audioAssetPath}"
+                    else -> "语音: 无"
+                }
+                Text(
+                    text = audioLabel,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            } else {
+                Text(
+                    text = "反馈: ${EventConfig.defaultText(config.eventType)} (默认)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "语音: 无",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
+            // ── 通知状态 ──
+            Text(
+                text = "通知: ${if (config.notificationEnabled) "开启" else "关闭"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 编辑按钮
+            // ── 编辑按钮 ──
             TextButton(
                 onClick = onEditClick,
                 modifier = Modifier.align(Alignment.End)
             ) {
-                Text("编辑")
+                Text("编辑事件")
             }
         }
     }
@@ -169,35 +189,16 @@ private fun EventListScreenPreview() {
         EventListScreen(
             configs = listOf(
                 EventConfig(
-                    id = "1",
-                    eventType = EventType.SCREEN_LONG_USAGE,
-                    enabled = true,
-                    threshold = 120,
-                    text = "别看了，我想睡觉了"
+                    id = "1", eventType = EventType.SCREEN_LONG_USAGE,
+                    enabled = true, threshold = 120, presetId = "p1", notificationEnabled = true
                 ),
                 EventConfig(
-                    id = "2",
-                    eventType = EventType.CHARGE_START,
-                    enabled = true,
-                    text = "谢谢给我补充能量"
-                ),
-                EventConfig(
-                    id = "3",
-                    eventType = EventType.LOW_BATTERY,
-                    enabled = true,
-                    threshold = 20,
-                    text = "我要没电啦"
-                ),
-                EventConfig(
-                    id = "4",
-                    eventType = EventType.SHAKE,
-                    enabled = true,
-                    text = "别摇我"
+                    id = "2", eventType = EventType.CHARGE_START,
+                    enabled = true, threshold = 0, presetId = "", notificationEnabled = true
                 )
             ),
-            onToggleEnabled = {},
-            onEditClick = {},
-            onBack = {}
+            presetRepository = null,
+            onToggleEnabled = {}, onEditClick = {}, onBack = {}
         )
     }
 }

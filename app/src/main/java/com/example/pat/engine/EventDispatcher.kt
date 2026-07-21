@@ -1,10 +1,11 @@
 package com.example.pat.engine
 
 import android.util.Log
-import com.example.pat.config.EventConfig
+import com.example.pat.data.PresetRepository
 import com.example.pat.event.DeviceEvent
 import com.example.pat.event.EventBus
 import com.example.pat.event.toDisplayLabel
+import com.example.pat.model.EventConfig
 import com.example.pat.response.ResponseManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -30,6 +31,7 @@ import kotlinx.coroutines.launch
 class EventDispatcher(
     private val ruleEngine: RuleEngine,
     private val responseManager: ResponseManager,
+    private val presetRepository: PresetRepository,
     private val scope: CoroutineScope
 ) {
     /** 每个事件类型的冷却时间 (ms) */
@@ -110,16 +112,19 @@ class EventDispatcher(
         todayTriggerCount++
 
         // 记录最近触发
+        val displayText = presetRepository.getById(config.presetId)?.text
+            ?: presetRepository.getRandom(config.eventType)?.text
+            ?: EventConfig.defaultText(config.eventType)
         _recentTriggers.add(0, RecentTrigger(
             eventTypeName = EventConfig.displayName(config.eventType),
-            displayText = config.text,
+            displayText = displayText,
             timestamp = now
         ))
         if (_recentTriggers.size > 20) {
             _recentTriggers.removeAt(_recentTriggers.lastIndex)
         }
 
-        Log.i(TAG, "Rule matched: ${config.eventType.name} → \"${config.text}\"")
+        Log.i(TAG, "Rule matched: ${config.eventType.name} → \"$displayText\"")
 
         // 执行反馈
         responseManager.execute(config)

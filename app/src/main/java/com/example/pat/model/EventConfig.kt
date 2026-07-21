@@ -1,30 +1,32 @@
-package com.example.pat.config
+package com.example.pat.model
 
 import com.example.pat.event.EventType
 
 /**
- * 事件配置数据模型 —— 用户对单个事件类型的完整配置。
+ * 事件规则 —— 用户对一个事件类型的完整配置。
  *
- * 每个事件类型拥有一份配置，保存在 SharedPreferences 中。
- * 用户在编辑页面修改配置后，[PreferenceManager] 负责持久化。
+ * 每个事件类型最多一条规则。
+ * 规则通过 [presetId] 引用 [ReactionPreset] 获取反馈内容。
  *
- * @property id 唯一标识符（UUID）
+ * 与旧版 [com.example.pat.config.EventConfig] 的区别：
+ * - 移除了 text / voicePath 字段
+ * - 新增 presetId 字段，解耦事件规则与反馈内容
+ *
+ * @property id 唯一标识符
  * @property eventType 事件类型
- * @property enabled 是否启用此事件的监听
- * @property threshold 阈值：SCREEN_LONG_USAGE = 分钟数, LOW_BATTERY = 电量百分比
- * @property text 反馈文本（通知内容）
- * @property voicePath 用户上传的音频文件路径（空表示无语音）
+ * @property enabled 是否启用此事件监听
+ * @property threshold 触发阈值（SCREEN_LONG_USAGE=分钟, LOW_BATTERY=百分比, 其他=0）
+ * @property presetId 关联的 ReactionPreset.id（空字符串表示无预设）
  * @property notificationEnabled 是否发送通知
  *
- * 参考文档：9. 数据结构示例
+ * 参考：目标架构 - EventConfig 数据模型
  */
 data class EventConfig(
     val id: String = "",
     val eventType: EventType,
     val enabled: Boolean = true,
     val threshold: Int = defaultThreshold(eventType),
-    val text: String = defaultText(eventType),
-    val voicePath: String = "",
+    val presetId: String = "",
     val notificationEnabled: Boolean = true
 ) {
     companion object {
@@ -38,7 +40,7 @@ data class EventConfig(
             EventType.IMPACT -> 0
         }
 
-        /** 默认反馈文本 */
+        /** 默认反馈文本（无预设时回退） */
         fun defaultText(type: EventType): String = when (type) {
             EventType.SCREEN_LONG_USAGE -> "别看了，我想睡觉了"
             EventType.CHARGE_START -> "谢谢给我补充能量"
@@ -49,7 +51,7 @@ data class EventConfig(
 
         /** 事件类型的可读中文名 */
         fun displayName(type: EventType): String = when (type) {
-            EventType.SCREEN_LONG_USAGE -> "屏幕使用过久"
+            EventType.SCREEN_LONG_USAGE -> "长时间使用"
             EventType.CHARGE_START -> "开始充电"
             EventType.LOW_BATTERY -> "电量低"
             EventType.SHAKE -> "摇晃手机"

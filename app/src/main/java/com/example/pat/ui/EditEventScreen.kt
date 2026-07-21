@@ -1,64 +1,58 @@
 package com.example.pat.ui
 
-import android.content.Context
-import android.net.Uri
-import android.provider.OpenableColumns
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.pat.config.EventConfig
+import com.example.pat.data.PresetRepository
 import com.example.pat.event.EventType
+import com.example.pat.model.EventConfig
+import com.example.pat.model.ReactionPreset
 import com.example.pat.ui.theme.PatTheme
-import java.io.File
-import java.io.FileOutputStream
 
 /**
- * 事件编辑页面。
+ * 事件编辑页面 —— 配置事件规则并选择反馈预设。
  *
- * 允许用户修改：
- * - 反馈文本（输入框）
- * - 通知开关（Switch）
- * - 阈值滑块（Slider，仅限 SCREEN_LONG_USAGE 和 LOW_BATTERY）
- * - 语音上传（文件选择器）+ 试听按钮
+ * 功能：
+ * - 启用/禁用开关
+ * - 阈值滑块（适用的事件类型）
+ * - 预设选择（RadioButton 列表 + 自定义选项）
+ * - 通知开关
+ * - 试听当前选中预设
+ * - 保存
  */
 @Composable
 fun EditEventScreen(
     config: EventConfig,
+    presetRepository: PresetRepository,
+    onCreateCustomPreset: (EventType) -> Unit,
     onSave: (EventConfig) -> Unit,
-    onPreviewVoice: (String) -> Unit,
+    onPreviewAsset: (String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-
     // ── 编辑状态 ──
-    var text by remember { mutableStateOf(config.text) }
-    var notificationEnabled by remember { mutableStateOf(config.notificationEnabled) }
+    var enabled by remember { mutableStateOf(config.enabled) }
     var threshold by remember { mutableFloatStateOf(config.threshold.toFloat()) }
-    var voicePath by remember { mutableStateOf(config.voicePath) }
-    var voiceFileName by remember { mutableStateOf(extractFileName(config.voicePath)) }
+    var selectedPresetId by remember { mutableStateOf(config.presetId) }
+    var notificationEnabled by remember { mutableStateOf(config.notificationEnabled) }
 
-    // ── 文件选择器 ──
-    val audioFilePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let { selectedUri ->
-            val copiedPath = copyAudioToInternal(context, selectedUri)
-            if (copiedPath != null) {
-                voicePath = copiedPath
-                voiceFileName = extractFileName(copiedPath)
-            }
-        }
+    // ── 可用预设列表 ──
+    val availablePresets = remember {
+        presetRepository.getByEventType(config.eventType)
+    }
+    val selectedPreset = remember(selectedPresetId) {
+        availablePresets.find { it.id == selectedPresetId }
     }
 
     val showThreshold = config.eventType == EventType.SCREEN_LONG_USAGE
@@ -81,9 +75,7 @@ fun EditEventScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextButton(onClick = onBack) {
-                Text("< 返回")
-            }
+            TextButton(onClick = onBack) { Text("< 返回") }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "编辑 - ${EventConfig.displayName(config.eventType)}",
@@ -92,24 +84,137 @@ fun EditEventScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // ── 反馈文本 ──
+        // ── 启用开关 ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("启用事件", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Switch(checked = enabled, onCheckedChange = { enabled = it })
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // ── 阈值滑块 ──
+        if (showThreshold) {
+            Text(
+                text = "触发条件: ${threshold.toInt()}$thresholdLabel",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val sliderRange = when (config.eventType) {
+                EventType.SCREEN_LONG_USAGE -> 30f..300f
+                EventType.LOW_BATTERY -> 5f..50f
+                else -> 0f..100f
+            }
+
+            Slider(
+                value = threshold,
+                onValueChange = { threshold = it },
+                valueRange = sliderRange,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+
+        // ── 反馈预设选择 ──
         Text(
-            text = "反馈文本",
+            text = "选择反馈预设",
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold
         )
         Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("输入反馈文本...") },
-            singleLine = true
-        )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        if (availablePresets.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Text(
+                    text = "暂无可用预设，请创建自定义预设",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        } else {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.selectableGroup()) {
+                    availablePresets.forEach { preset ->
+                        val isSelected = preset.id == selectedPresetId
+                        PresetRadioRow(
+                            preset = preset,
+                            isSelected = isSelected,
+                            onSelect = { selectedPresetId = preset.id },
+                            onPreview = {
+                                if (preset.audioAssetPath.isNotBlank()) {
+                                    onPreviewAsset(preset.audioAssetPath)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // ── 自定义预设入口 ──
+        TextButton(
+            onClick = { onCreateCustomPreset(config.eventType) }
+        ) {
+            Text("+ 创建自定义预设")
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ── 当前选中预设详情 ──
+        if (selectedPreset != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "已选: ${selectedPreset.name}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Text(
+                        text = "文本: ${selectedPreset.text}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    if (selectedPreset.audioAssetPath.isNotBlank()) {
+                        Text(
+                            text = "音频: ${selectedPreset.audioAssetPath}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { onPreviewAsset(selectedPreset.audioAssetPath) },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    ) {
+                        Text("试听")
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         // ── 通知开关 ──
         Row(
@@ -118,97 +223,12 @@ fun EditEventScreen(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
-                Text(
-                    text = "通知",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "事件触发时发送通知",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text("通知", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                Text("事件触发时发送通知", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Switch(
-                checked = notificationEnabled,
-                onCheckedChange = { notificationEnabled = it }
-            )
+            Switch(checked = notificationEnabled, onCheckedChange = { notificationEnabled = it })
         }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // ── 阈值滑块（仅适用的事件类型） ──
-        if (showThreshold) {
-            Text(
-                text = "阈值: ${threshold.toInt()}$thresholdLabel",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            val sliderRange = when (config.eventType) {
-                EventType.SCREEN_LONG_USAGE -> 30f..300f   // 30分钟 - 5小时
-                EventType.LOW_BATTERY -> 5f..50f            // 5% - 50%
-                else -> 0f..100f
-            }
-
-            Slider(
-                value = threshold,
-                onValueChange = { threshold = it },
-                valueRange = sliderRange,
-                steps = 0,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-        }
-
-        // ── 语音 ──
-        Text(
-            text = "语音",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // 上传按钮
-            OutlinedButton(
-                onClick = { audioFilePicker.launch("audio/*") },
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(if (voicePath.isBlank()) "上传音频" else "更换音频")
-            }
-
-            // 试听按钮
-            if (voicePath.isNotBlank()) {
-                OutlinedButton(
-                    onClick = { onPreviewVoice(voicePath) }
-                ) {
-                    Text("试听")
-                }
-            }
-        }
-
-        // 已上传文件名
-        if (voiceFileName.isNotBlank()) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "已上传: $voiceFileName",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-
-        Text(
-            text = "支持 mp3、wav 格式",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
 
         Spacer(modifier = Modifier.height(32.dp))
 
@@ -217,81 +237,70 @@ fun EditEventScreen(
             onClick = {
                 onSave(
                     config.copy(
-                        text = text,
-                        notificationEnabled = notificationEnabled,
+                        enabled = enabled,
                         threshold = threshold.toInt(),
-                        voicePath = voicePath
+                        presetId = selectedPresetId,
+                        notificationEnabled = notificationEnabled
                     )
                 )
             },
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
-            )
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
-            Text(
-                text = "保存",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
+            Text("保存", style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = 4.dp))
         }
     }
 }
 
 /**
- * 将用户选择的音频文件复制到应用内部存储。
- *
- * @return 复制后的文件绝对路径，失败返回 null
+ * 预设单选行 —— RadioButton + 文本 + 试听按钮。
  */
-private fun copyAudioToInternal(context: Context, uri: Uri): String? {
-    return try {
-        // 获取原始文件名
-        var fileName = "audio_${System.currentTimeMillis()}"
-        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (cursor.moveToFirst() && nameIndex >= 0) {
-                fileName = cursor.getString(nameIndex)
-            }
+@Composable
+private fun PresetRadioRow(
+    preset: ReactionPreset,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+    onPreview: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(
+                selected = isSelected,
+                onClick = onSelect,
+                role = Role.RadioButton
+            )
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = isSelected,
+            onClick = null  // handled by selectable modifier
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = preset.text,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+            )
+            Text(
+                text = preset.name,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-
-        val voiceDir = File(context.filesDir, "voices")
-        if (!voiceDir.exists()) voiceDir.mkdirs()
-
-        val destFile = File(voiceDir, fileName)
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            FileOutputStream(destFile).use { output ->
-                input.copyTo(output)
-            }
+        if (preset.audioAssetPath.isNotBlank()) {
+            TextButton(onClick = onPreview) { Text("试听") }
         }
-
-        destFile.absolutePath
-    } catch (e: Exception) {
-        e.printStackTrace()
-        null
     }
-}
-
-private fun extractFileName(path: String): String {
-    if (path.isBlank()) return ""
-    return File(path).name
 }
 
 @Preview(showBackground = true)
 @Composable
 private fun EditEventScreenPreview() {
     PatTheme {
-        EditEventScreen(
-            config = EventConfig(
-                id = "1",
-                eventType = EventType.SCREEN_LONG_USAGE,
-                enabled = true,
-                threshold = 120,
-                text = "别看了，我想睡觉了",
-                notificationEnabled = true
-            ),
-            onSave = {},
-            onPreviewVoice = {},
-            onBack = {}
-        )
+        // Preview only — cannot instantiate real repository here
     }
 }
