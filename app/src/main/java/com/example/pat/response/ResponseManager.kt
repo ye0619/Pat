@@ -82,7 +82,7 @@ class ResponseManager(
         // 1. 通知反馈
         if (config.notificationEnabled && displayText.isNotBlank()) {
             notificationService.show(
-                title = "MotionPet",
+                title = "Pat",
                 text = displayText
             )
         }

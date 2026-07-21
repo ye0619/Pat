@@ -42,7 +42,7 @@ fun HomeScreen(
     ) {
         // ── 标题 ──
         Text(
-            text = "MotionPet",
+            text = "Pat",
             style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.Bold
         )
