@@ -82,11 +82,8 @@ class MainActivity : ComponentActivity() {
                             } else emptyList(),
                             onNavigateToEventList = {
                                 configs = configRepository.loadAll()
-                                currentScreen = Screen.EventList
-                            },
-                            onNavigateToRuleList = {
                                 userRules = userRuleRepository.loadAll()
-                                currentScreen = Screen.RuleList
+                                currentScreen = Screen.EventList
                             },
                             onTestEvent = { eventType ->
                                 val testEvent = when (eventType) {
@@ -110,14 +107,29 @@ class MainActivity : ComponentActivity() {
                     is Screen.EventList -> {
                         EventListScreen(
                             configs = configs,
+                            userRules = userRules,
                             presetRepository = presetRepository,
                             onToggleEnabled = { config ->
                                 configRepository.save(config)
                                 configs = configRepository.loadAll()
                             },
+                            onToggleRuleEnabled = { rule ->
+                                userRuleRepository.save(rule)
+                                userRules = userRuleRepository.loadAll()
+                            },
                             onEditClick = { eventType ->
                                 configs = configRepository.loadAll()
                                 currentScreen = Screen.EditEvent(eventType)
+                            },
+                            onEditRuleClick = { rule ->
+                                currentScreen = Screen.RuleBuilder(rule.id)
+                            },
+                            onDeleteRuleClick = { rule ->
+                                userRuleRepository.delete(rule.id)
+                                userRules = userRuleRepository.loadAll()
+                            },
+                            onCreateRuleClick = {
+                                currentScreen = Screen.RuleBuilder(null)
                             },
                             onBack = { currentScreen = Screen.Home },
                             modifier = Modifier.fillMaxSize()

@@ -1,6 +1,5 @@
 package com.example.pat.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,37 +9,34 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.pat.data.PresetRepository
 import com.example.pat.event.EventType
 import com.example.pat.model.EventConfig
 import com.example.pat.model.ReactionPreset
-import com.example.pat.ui.theme.PatTheme
+import com.example.pat.model.UserRule
 
 /**
- * 事件管理列表页 —— 展示所有事件规则及其关联的反馈预设。
- *
- * 每个条目显示：
- * - 事件名称 + 启用状态
- * - 触发条件（阈值）
- * - 关联的反馈预设（文本 + 语音）
- * - 通知开关
- * - 编辑按钮
+ * 事件管理列表页 —— 统一展示基础事件规则 + 用户自定义规则。
  */
 @Composable
 fun EventListScreen(
     configs: List<EventConfig>,
+    userRules: List<UserRule>,
     presetRepository: PresetRepository?,
     onToggleEnabled: (EventConfig) -> Unit,
+    onToggleRuleEnabled: (UserRule) -> Unit,
     onEditClick: (EventType) -> Unit,
+    onEditRuleClick: (UserRule) -> Unit,
+    onDeleteRuleClick: (UserRule) -> Unit,
+    onCreateRuleClick: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(24.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         // ── 标题栏 ──
         Row(
@@ -48,17 +44,29 @@ fun EventListScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onBack) { Text("< 返回") }
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "事件管理",
                 style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // ── 基础事件 ──
+            item {
+                Text(
+                    text = "基础事件",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
+
             items(configs) { config ->
                 val preset = config.presetId.let { id ->
                     if (id.isNotBlank()) presetRepository?.getById(id) else null
@@ -70,6 +78,49 @@ fun EventListScreen(
                     onEditClick = { onEditClick(config.eventType) }
                 )
             }
+
+            // ── 自定义规则 ──
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "自定义规则",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onCreateRuleClick) {
+                        Text("+ 新建")
+                    }
+                }
+            }
+
+            if (userRules.isEmpty()) {
+                item {
+                    Text(
+                        text = "暂无自定义规则，点击「+ 新建」创建",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+            }
+
+            items(userRules) { rule ->
+                UserRuleCard(
+                    rule = rule,
+                    onToggleEnabled = { onToggleRuleEnabled(rule.copy(enabled = it)) },
+                    onEditClick = { onEditRuleClick(rule) },
+                    onDeleteClick = { onDeleteRuleClick(rule) }
+                )
+            }
+
+            // 底部留白
+            item { Spacer(modifier = Modifier.height(24.dp)) }
         }
     }
 }
@@ -90,10 +141,7 @@ private fun EventConfigCard(
                 MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
-        ) {
-            // ── 标题行：名称 + 开关 ──
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -101,12 +149,16 @@ private fun EventConfigCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = EventConfig.displayName(config.eventType),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
-                    // 状态
+                    val conditionText = when (config.eventType) {
+                        EventType.SCREEN_LONG_USAGE -> "连续使用 ${config.threshold}分钟"
+                        EventType.LOW_BATTERY -> "电量低于 ${config.threshold}%"
+                        else -> "触发即响应"
+                    }
                     Text(
-                        text = "状态: ${if (config.enabled) "开启" else "关闭"}",
+                        text = conditionText,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -114,99 +166,96 @@ private fun EventConfigCard(
                 Switch(checked = config.enabled, onCheckedChange = onToggleEnabled)
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // ── 触发条件 ──
-            val conditionText = when (config.eventType) {
-                EventType.SCREEN_LONG_USAGE -> "连续使用 ${config.threshold}分钟"
-                EventType.LOW_BATTERY -> "电量低于 ${config.threshold}%"
-                else -> "触发即响应"
-            }
-            Text(
-                text = "触发条件: $conditionText",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // ── 反馈预设信息 ──
-            if (preset != null) {
+            // 反馈信息
+            val text = preset?.text ?: EventConfig.defaultText(config.eventType)
+            if (text.isNotBlank()) {
                 Text(
-                    text = "反馈: ${preset.text}",
+                    text = text,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                val audioLabel = when {
-                    preset.audioAssetPath.isNotBlank() -> "语音: ${preset.audioAssetPath}"
-                    else -> "语音: 无"
-                }
-                Text(
-                    text = audioLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            } else {
-                Text(
-                    text = "反馈: ${EventConfig.defaultText(config.eventType)} (默认)",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "语音: 无",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp)
                 )
             }
 
-            // ── 最小触发间隔 ──
-            Text(
-                text = if (config.minIntervalMinutes > 0) "最小间隔: ${config.minIntervalMinutes}分钟"
-                       else "最小间隔: 无限制",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // ── 通知状态 ──
-            Text(
-                text = "通知: ${if (config.notificationEnabled) "开启" else "关闭"}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // ── 编辑按钮 ──
-            TextButton(
-                onClick = onEditClick,
-                modifier = Modifier.align(Alignment.End)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
             ) {
-                Text("编辑事件")
+                TextButton(onClick = onEditClick) { Text("编辑") }
             }
         }
     }
 }
 
-@Preview(showBackground = true)
 @Composable
-private fun EventListScreenPreview() {
-    PatTheme {
-        EventListScreen(
-            configs = listOf(
-                EventConfig(
-                    id = "1", eventType = EventType.SCREEN_LONG_USAGE,
-                    enabled = true, threshold = 120, presetId = "p1", notificationEnabled = true
-                ),
-                EventConfig(
-                    id = "2", eventType = EventType.CHARGE_START,
-                    enabled = true, threshold = 0, presetId = "", notificationEnabled = true
-                )
-            ),
-            presetRepository = null,
-            onToggleEnabled = {}, onEditClick = {}, onBack = {}
+private fun UserRuleCard(
+    rule: UserRule,
+    onToggleEnabled: (Boolean) -> Unit,
+    onEditClick: () -> Unit,
+    onDeleteClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (rule.enabled)
+                MaterialTheme.colorScheme.secondaryContainer
+            else
+                MaterialTheme.colorScheme.surfaceVariant
         )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = rule.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = rule.conditionSummary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Switch(checked = rule.enabled, onCheckedChange = onToggleEnabled)
+            }
+
+            // 反馈
+            if (rule.reactionText.isNotBlank()) {
+                Text(
+                    text = rule.reactionText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "${rule.timeWindowMs / 1000}秒 · 优先级${rule.priority}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row {
+                    TextButton(onClick = onEditClick) { Text("编辑") }
+                    TextButton(
+                        onClick = onDeleteClick,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) { Text("删除") }
+                }
+            }
+        }
     }
 }

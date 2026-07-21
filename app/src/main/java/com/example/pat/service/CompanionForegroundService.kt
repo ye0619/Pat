@@ -142,7 +142,7 @@ class CompanionForegroundService : Service() {
         ruleEngineV2.onRuleMatched = { rule ->
             Log.i(TAG, "RuleEngineV2 matched: \"${rule.name}\" — executing reaction")
             // 使用 EventBus 桥接：将匹配的规则转为 DeviceEvent 触发反馈
-            // 规则携带 reactionPresetId，但目前桥接到现有的 EventDispatcher 流程
+            // 规则自带 reactionText + reactionAudioPath，由 executeRuleReaction 处理
             executeRuleReaction(rule)
         }
 
@@ -246,39 +246,29 @@ class CompanionForegroundService : Service() {
     /**
      * 执行用户自定义规则的反馈。
      * 桥接 UserRule → 现有 ResponseManager + NotificationService。
+     * 优先使用规则自带的 reactionText/reactionAudioPath。
      */
     private fun executeRuleReaction(rule: UserRule) {
-        // 解析反馈文本
-        val preset: com.example.pat.model.ReactionPreset? =
-            if (rule.reactionPresetId.isNotBlank())
-                presetRepository.getById(rule.reactionPresetId)
-            else null
-
-        val displayText = preset?.text ?: "\"${rule.name}\" 已触发"
+        val displayText = rule.reactionText.ifBlank { "\"${rule.name}\" 已触发" }
 
         // 通知
         if (rule.notificationEnabled && displayText.isNotBlank()) {
-            responseManager.run {
-                // 直接使用 NotificationService（绕过 ResponseManager 的全局锁和预设解析）
-                val ns = com.example.pat.response.NotificationService(this@CompanionForegroundService)
-                ns.show(
-                    title = "Pat",
-                    text = displayText,
-                    enableSound = rule.soundEnabled,
-                    enableVibration = rule.vibrationEnabled,
-                    showHeadsUp = rule.showHeadsUp,
-                    lockScreenPublic = rule.lockScreenPublic
-                )
-                Log.i(TAG, "Rule reaction: \"${rule.name}\" → \"$displayText\"")
-            }
+            val ns = com.example.pat.response.NotificationService(this)
+            ns.show(
+                title = "Pat",
+                text = displayText,
+                enableSound = rule.soundEnabled,
+                enableVibration = rule.vibrationEnabled,
+                showHeadsUp = rule.showHeadsUp,
+                lockScreenPublic = rule.lockScreenPublic
+            )
+            Log.i(TAG, "Rule reaction: \"${rule.name}\" → \"$displayText\"")
         }
 
         // 音频
-        val audioPath = preset?.audioAssetPath ?: ""
+        val audioPath = rule.reactionAudioPath
         if (audioPath.isNotBlank()) {
-            if (preset?.audioType == com.example.pat.model.AudioType.CUSTOM &&
-                (audioPath.startsWith("/") || audioPath.startsWith(filesDir.absolutePath))
-            ) {
+            if (audioPath.startsWith("/") || audioPath.startsWith(filesDir.absolutePath)) {
                 com.example.pat.response.VoiceService(this).play(audioPath)
             } else {
                 com.example.pat.audio.AudioPlayer(this).playAsset(audioPath)

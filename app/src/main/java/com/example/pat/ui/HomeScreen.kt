@@ -37,7 +37,6 @@ fun HomeScreen(
     todayTriggerCount: Int,
     recentTriggers: List<RecentTrigger>,
     onNavigateToEventList: () -> Unit,
-    onNavigateToRuleList: (() -> Unit)? = null,
     onTestEvent: ((EventType) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -238,21 +237,6 @@ fun HomeScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(vertical = 4.dp)
             )
-        }
-
-        // ── 自定义规则入口 ──
-        if (onNavigateToRuleList != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = onNavigateToRuleList,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "自定义规则",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
         }
     }
 }

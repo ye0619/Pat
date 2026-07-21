@@ -97,7 +97,8 @@ class UserRuleRepository(
                 put("timeWindowMs", rule.timeWindowMs)
                 put("priority", rule.priority)
                 put("enabled", rule.enabled)
-                put("reactionPresetId", rule.reactionPresetId)
+                put("reactionText", rule.reactionText)
+                put("reactionAudioPath", rule.reactionAudioPath)
                 put("notificationEnabled", rule.notificationEnabled)
                 put("vibrationEnabled", rule.vibrationEnabled)
                 put("soundEnabled", rule.soundEnabled)
@@ -157,7 +158,8 @@ class UserRuleRepository(
                     timeWindowMs = obj.optLong("timeWindowMs", 10_000L),
                     priority = obj.optInt("priority", 5),
                     enabled = obj.optBoolean("enabled", true),
-                    reactionPresetId = obj.optString("reactionPresetId", ""),
+                    reactionText = obj.optString("reactionText", ""),
+                    reactionAudioPath = obj.optString("reactionAudioPath", ""),
                     notificationEnabled = obj.optBoolean("notificationEnabled", true),
                     vibrationEnabled = obj.optBoolean("vibrationEnabled", false),
                     soundEnabled = obj.optBoolean("soundEnabled", false),

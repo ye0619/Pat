@@ -49,6 +49,8 @@ fun RuleBuilderScreen(
     var minIntervalMinutes by remember {
         mutableFloatStateOf((existingRule?.minIntervalMinutes ?: 10).toFloat())
     }
+    var reactionText by remember { mutableStateOf(existingRule?.reactionText ?: "") }
+    var reactionAudioPath by remember { mutableStateOf(existingRule?.reactionAudioPath ?: "") }
 
     Column(
         modifier = modifier
@@ -171,6 +173,78 @@ fun RuleBuilderScreen(
             modifier = Modifier.fillMaxWidth()
         )
 
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ── 反馈设置 ──
+        Text("反馈设置", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(4.dp))
+
+        OutlinedTextField(
+            value = reactionText,
+            onValueChange = { reactionText = it },
+            label = { Text("反馈文本") },
+            placeholder = { Text("事件触发时显示的文字") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // 音频选择：内置预设列表
+        val presets = remember { presetRepository.getAll() }
+        var audioExpanded by remember { mutableStateOf(false) }
+        val selectedPreset = remember(reactionAudioPath) {
+            if (reactionAudioPath.isBlank()) null
+            else presets.find { it.audioAssetPath == reactionAudioPath }
+        }
+
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { audioExpanded = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = if (selectedPreset != null) "音频: ${selectedPreset.name}"
+                    else if (reactionAudioPath.isNotBlank()) "音频: 自定义文件"
+                    else "选择音频（可选）",
+                    maxLines = 1,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            DropdownMenu(
+                expanded = audioExpanded,
+                onDismissRequest = { audioExpanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("无音频", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    onClick = {
+                        reactionAudioPath = ""
+                        audioExpanded = false
+                    }
+                )
+                presets.forEach { preset ->
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(preset.name, style = MaterialTheme.typography.bodyMedium)
+                                Text(preset.text, style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (preset.audioAssetPath.isNotBlank()) {
+                                    Text("🎵 ${preset.audioAssetPath}", style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        },
+                        onClick = {
+                            reactionAudioPath = preset.audioAssetPath
+                            if (reactionText.isBlank()) reactionText = preset.text
+                            audioExpanded = false
+                        }
+                    )
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(20.dp))
 
         // ── 保存按钮 ──
@@ -184,7 +258,8 @@ fun RuleBuilderScreen(
                     timeWindowMs = (timeWindowSec * 1000).toLong(),
                     priority = priority.toInt(),
                     enabled = existingRule?.enabled ?: true,
-                    reactionPresetId = existingRule?.reactionPresetId ?: "",
+                    reactionText = reactionText,
+                    reactionAudioPath = reactionAudioPath,
                     minIntervalMinutes = minIntervalMinutes.toInt()
                 )
                 onSave(rule)

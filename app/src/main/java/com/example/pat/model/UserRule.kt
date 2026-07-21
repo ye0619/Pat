@@ -48,8 +48,10 @@ data class UserRule(
     val priority: Int = 5,
     /** 是否启用 */
     val enabled: Boolean = true,
-    /** 关联的反馈预设 ID */
-    val reactionPresetId: String = "",
+    /** 反馈文本（用户自定义） */
+    val reactionText: String = "",
+    /** 反馈音频路径（内置预设路径 或 用户上传文件路径） */
+    val reactionAudioPath: String = "",
     // ── 通知偏好（同 EventConfig） ──
     val notificationEnabled: Boolean = true,
     val vibrationEnabled: Boolean = false,
