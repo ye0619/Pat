@@ -28,6 +28,6 @@ enum class AtomicEventType(
     BATTERY_LEVEL("电量变化", "电量百分比发生变化", hasValue = true, supportsCount = false),
     LONG_USAGE("长时间使用", "累计亮屏时间超过阈值", hasValue = true, supportsCount = false),
     LATE_NIGHT("时间段使用", "在指定时间段内使用手机", supportsCount = false, supportsTimeRange = true),
-    CLICK("点击屏幕", "应用内检测屏幕点击", supportsCount = true),
-    LONG_PRESS("长按屏幕", "应用内检测屏幕长按", supportsCount = false)
+    CLICK("点击屏幕（仅在应用内生效）", "应用内检测屏幕点击", supportsCount = true),
+    LONG_PRESS("长按屏幕（仅在应用内生效）", "应用内检测屏幕长按", supportsCount = false)
 }
