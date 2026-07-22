@@ -10,7 +10,6 @@ import com.example.pat.event.AtomicEventType
 import com.example.pat.event.EventType
 import com.example.pat.event.toType
 import com.example.pat.model.ConditionDef
-import com.example.pat.model.ConditionGroup
 import com.example.pat.model.EventConfig
 import com.example.pat.model.EventDefinition
 import com.example.pat.model.NotificationConfig
@@ -148,14 +147,14 @@ class RuleEngineV2(
 
     private fun evaluateEventDefinitions(atomicType: AtomicEventType, now: Long): List<PriorityResolver.MatchedRule> {
         val defs = definitionRepository.loadAll()
-            .filter { it.enabled && !it.isPreset && it.conditionGroups.isNotEmpty() }
+            .filter { it.enabled && !it.isPreset && it.conditions.isNotEmpty() }
 
         return defs.mapNotNull { def ->
-            val satisfied = def.conditionGroups.any { group ->
-                if (group.conditions.isEmpty()) false
-                else if (group.conditions.size == 1) evaluator.evaluate(group.conditions.first(), def.timeWindowMs, now)
-                else evaluator.evaluateSequence(group.conditions, def.timeWindowMs, now)
-            }
+            // 所有条件 AND：全部满足才触发
+            val satisfied = if (def.conditions.size == 1)
+                evaluator.evaluate(def.conditions.first(), def.timeWindowMs, now)
+            else
+                evaluator.evaluateSequence(def.conditions, def.timeWindowMs, now)
             if (satisfied) PriorityResolver.MatchedRule(
                 ruleId = def.id, priority = 5,
                 reactions = def.reactions, notification = def.notification,

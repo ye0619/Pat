@@ -110,7 +110,13 @@ fun EditEventScreen(
                 EventType.CHARGE_START -> Text("触发条件：手机开始充电，无法更改",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                EventType.SHAKE -> ShakeConditionPanel()
+                EventType.SHAKE -> {
+                    Text("摇晃手机：加速度计检测到设备摇晃",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Text("使用TYPE_LINEAR_ACCELERATION检测，参数无法修改",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 EventType.DROP -> {
                     Text("坠落：检测到短暂失重，随后发生强烈冲击",
                         style = MaterialTheme.typography.bodyMedium)
@@ -207,40 +213,6 @@ private fun SliderWithInput(
         }, Modifier.width(68.dp), singleLine = true, textStyle = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.width(2.dp))
         Text(label, style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-@Composable
-private fun ShakeConditionPanel() {
-    var amin by remember { mutableFloatStateOf(13f) }
-    var amax by remember { mutableFloatStateOf(30f) }
-    var n by remember { mutableIntStateOf(7) }
-    var t by remember { mutableFloatStateOf(700f) }
-    Text("摇晃手机（TYPE_LINEAR_ACCELERATION）", style = MaterialTheme.typography.bodyMedium,
-        fontWeight = FontWeight.Medium)
-    Text("加速度a在窗口t内，有n次位于(amin, amax)则触发",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Spacer(Modifier.height(8.dp))
-    Text("amin: ${amin.toInt()} m/s²", style = MaterialTheme.typography.bodySmall)
-    Slider(amin, { v -> amin = v }, valueRange = 5f..30f, modifier = Modifier.fillMaxWidth())
-    Text("amax: ${amax.toInt()} m/s²", style = MaterialTheme.typography.bodySmall)
-    Slider(amax, { v -> amax = v }, valueRange = 15f..50f, modifier = Modifier.fillMaxWidth())
-    var nText by remember(n) { mutableStateOf(n.toString()) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("次数 n:", style = MaterialTheme.typography.bodySmall)
-        Slider(n.toFloat(), { v -> n = v.toInt(); nText = v.toInt().toString() },
-            valueRange = 3f..20f, steps = 16, modifier = Modifier.weight(1f))
-        OutlinedTextField(nText, { s ->
-            val f = s.filter { it.isDigit() }; nText = f
-            f.toIntOrNull()?.coerceIn(3, 20)?.let { n = it }
-        }, Modifier.width(52.dp), singleLine = true, textStyle = MaterialTheme.typography.bodySmall)
-    }
-    Text("窗口 t: ${t.toInt()}ms", style = MaterialTheme.typography.bodySmall)
-    Slider(t, { v -> t = v }, valueRange = 2000f..10000f, steps = 15, modifier = Modifier.fillMaxWidth())
-    Spacer(Modifier.height(8.dp))
-    Button(onClick = {}, Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
-        Text("摇晃测试 (${t.toInt()}ms)")
     }
 }
 

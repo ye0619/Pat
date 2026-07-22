@@ -39,12 +39,12 @@ class EventDefinitionRepository(context: Context) {
 
     fun count(): Int = loadAll().size
 
-    /** 冲突检测：查找与指定定义使用了相同原子条件类型的其他启用事件 */
+    /** 冲突检测 */
     fun findConflicts(def: EventDefinition): List<EventDefinition> {
-        val types = def.conditionGroups.flatMap { it.conditions }.map { it.atomicType }.toSet()
+        val types = def.conditions.map { it.atomicType }.toSet()
         return loadAll().filter { other ->
             other.id != def.id && other.enabled &&
-            other.conditionGroups.flatMap { it.conditions }.any { it.atomicType in types }
+            other.conditions.any { it.atomicType in types }
         }
     }
 
@@ -57,7 +57,6 @@ class EventDefinitionRepository(context: Context) {
             put("id", def.id); put("name", def.name); put("enabled", def.enabled)
             put("isPreset", def.isPreset)
             def.eventType?.let { put("eventType", it.name) }
-            put("triggerType", def.triggerType.name)
             put("timeWindowMs", def.timeWindowMs)
             put("minIntervalMinutes", def.minIntervalMinutes)
             put("notifEnabled", def.notification.enabled)
@@ -65,19 +64,15 @@ class EventDefinitionRepository(context: Context) {
             put("playFeedbackAudio", def.notification.playFeedbackAudio)
             put("vibration", def.notification.vibration)
             put("lockScreen", def.notification.lockScreen)
-            put("conditionGroups", JSONArray().apply {
-                def.conditionGroups.forEach { g -> put(JSONObject().apply {
-                    put("conditions", JSONArray().apply {
-                        g.conditions.forEach { c -> put(JSONObject().apply {
-                            put("atomicType", c.atomicType.name)
-                            c.operator?.let { put("operator", it.name) }
-                            c.value?.let { put("value", it) }
-                            put("count", c.count)
-                            c.valueMin?.let { put("valueMin", it) }
-                            c.valueMax?.let { put("valueMax", it) }
-                            if (c.checkCurrentState) put("checkCurrentState", true)
-                        })}
-                    })
+            put("conditions", JSONArray().apply {
+                def.conditions.forEach { c -> put(JSONObject().apply {
+                    put("atomicType", c.atomicType.name)
+                    c.operator?.let { put("operator", it.name) }
+                    c.value?.let { put("value", it) }
+                    put("count", c.count)
+                    c.valueMin?.let { put("valueMin", it) }
+                    c.valueMax?.let { put("valueMax", it) }
+                    if (c.checkCurrentState) put("checkCurrentState", true)
                 })}
             })
             put("reactions", JSONArray().apply {
@@ -88,28 +83,34 @@ class EventDefinitionRepository(context: Context) {
         })}
     }.toString()
 
+    private fun parseCond(c: org.json.JSONObject) = ConditionDef(
+        atomicType = try { AtomicEventType.valueOf(c.getString("atomicType")) }
+            catch (e: Exception) { AtomicEventType.SHAKE },
+        operator = c.optString("operator", "").let {
+            try { ConditionDef.CompareOp.valueOf(it) } catch (e: Exception) { null } },
+        value = if (c.has("value")) c.optInt("value") else null,
+        count = c.optInt("count", 1),
+        valueMin = if (c.has("valueMin")) c.optInt("valueMin") else null,
+        valueMax = if (c.has("valueMax")) c.optInt("valueMax") else null,
+        checkCurrentState = c.optBoolean("checkCurrentState", false)
+    )
+
     private fun parse(json: String): List<EventDefinition> {
         val array = JSONArray(json)
         return (0 until array.length()).map { i ->
             val obj = array.getJSONObject(i)
-            val groupsArray = obj.optJSONArray("conditionGroups") ?: JSONArray()
-            val groups = (0 until groupsArray.length()).map { gi ->
-                val gObj = groupsArray.getJSONObject(gi)
-                val cArr = gObj.optJSONArray("conditions") ?: JSONArray()
-                ConditionGroup((0 until cArr.length()).map { ci ->
-                    val c = cArr.getJSONObject(ci)
-                    ConditionDef(
-                        atomicType = try { AtomicEventType.valueOf(c.getString("atomicType")) }
-                            catch (e: Exception) { AtomicEventType.SHAKE },
-                        operator = c.optString("operator", "").let {
-                            try { ConditionDef.CompareOp.valueOf(it) } catch (e: Exception) { null } },
-                        value = if (c.has("value")) c.optInt("value") else null,
-                        count = c.optInt("count", 1),
-                        valueMin = if (c.has("valueMin")) c.optInt("valueMin") else null,
-                        valueMax = if (c.has("valueMax")) c.optInt("valueMax") else null,
-                        checkCurrentState = c.optBoolean("checkCurrentState", false)
-                    )
-                })
+            // 兼容旧格式 conditionGroups 和新格式 conditions
+            val conds = mutableListOf<ConditionDef>()
+            val condsArr = obj.optJSONArray("conditions")
+            if (condsArr != null) {
+                for (ci in 0 until condsArr.length()) conds.add(parseCond(condsArr.getJSONObject(ci)))
+            } else {
+                val groupsArr = obj.optJSONArray("conditionGroups")
+                if (groupsArr != null) for (gi in 0 until groupsArr.length()) {
+                    val g = groupsArr.getJSONObject(gi)
+                    val cArr = g.optJSONArray("conditions") ?: continue
+                    for (ci in 0 until cArr.length()) conds.add(parseCond(cArr.getJSONObject(ci)))
+                }
             }
             val rArr = obj.optJSONArray("reactions") ?: JSONArray()
             val reactions = (0 until rArr.length()).map { ri ->
@@ -122,9 +123,7 @@ class EventDefinitionRepository(context: Context) {
                 isPreset = obj.optBoolean("isPreset", false),
                 eventType = obj.optString("eventType", "").let {
                     try { EventType.valueOf(it) } catch (e: Exception) { null } },
-                triggerType = try { TriggerType.valueOf(obj.optString("triggerType", "SINGLE")) }
-                    catch (e: Exception) { TriggerType.SINGLE },
-                conditionGroups = groups, timeWindowMs = obj.optLong("timeWindowMs", 5000L),
+                conditions = conds, timeWindowMs = obj.optLong("timeWindowMs", 5000L),
                 reactions = reactions,
                 notification = NotificationConfig(
                     enabled = obj.optBoolean("notifEnabled", false),

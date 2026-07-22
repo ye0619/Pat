@@ -30,5 +30,5 @@ object ConflictDetector {
     }
 
     private fun usedTypes(def: EventDefinition): Set<AtomicEventType> =
-        def.conditionGroups.flatMap { it.conditions }.map { it.atomicType }.toSet()
+        def.conditions.map { it.atomicType }.toSet()
 }

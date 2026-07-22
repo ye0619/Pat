@@ -140,8 +140,8 @@ class MainActivity : ComponentActivity() {
         val enabled = customDefs.filter { it.enabled }
         val conflicted = mutableSetOf<String>()
         for (i in enabled.indices) for (j in i + 1 until enabled.size) {
-            val ta = enabled[i].conditionGroups.flatMap { it.conditions }.map { it.atomicType }.toSet()
-            val tb = enabled[j].conditionGroups.flatMap { it.conditions }.map { it.atomicType }.toSet()
+            val ta = enabled[i].conditions.map { it.atomicType }.toSet()
+            val tb = enabled[j].conditions.map { it.atomicType }.toSet()
             if (ta.intersect(tb).isNotEmpty()) { conflicted.add(enabled[i].id); conflicted.add(enabled[j].id) }
         }
         return conflicted
