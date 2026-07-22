@@ -20,15 +20,17 @@ import kotlin.math.abs
  * 参考文档：5.2 摇晃检测
  */
 class ShakeDetector(
-    /** 单次波动偏离重力的阈值 (m/s²) */
-    private val shakeThreshold: Float = 13.0f,
-    /** 时间窗口内需要达到的波动次数（提高要求以减少走路/跑步误触发） */
-    private val shakeCountRequired: Int = 7,
-    /** 统计窗口时长 (ms)（缩短窗口要求更高摇晃频率） */
-    private val shakeTimeWindowMs: Long = 700L,
-    /** 两次摇晃触发之间的最小间隔 (ms)，防止持续摇晃时重复触发 */
+    private var shakeThresholdMin: Float = 10.0f,
+    private var shakeThresholdMax: Float = 30.0f,
+    private var shakeCountRequired: Int = 5,
+    private var shakeTimeWindowMs: Long = 1000L,
     private val shakeCooldownMs: Long = 2000L
 ) : MotionDetector<Boolean> {
+
+    fun updateParams(amin: Float, amax: Float, n: Int, t: Long) {
+        shakeThresholdMin = amin; shakeThresholdMax = amax
+        shakeCountRequired = n; shakeTimeWindowMs = t
+    }
 
     private val eventTimes = ArrayDeque<Long>()
     /** 上次摇晃触发时间（挂钟毫秒），用于冷却判断 */
@@ -43,7 +45,8 @@ class ShakeDetector(
 
         // 计算合加速度偏离重力基线的幅度
         val delta = abs(magnitude - AccelData.GRAVITY)
-        if (delta < shakeThreshold) return false
+        // 只计数在 (amin, amax) 区间内的加速度波动
+        if (delta < shakeThresholdMin || delta > shakeThresholdMax) return false
 
         // 清理窗口外的过期记录
         while (eventTimes.isNotEmpty() &&

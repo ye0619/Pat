@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -35,8 +37,8 @@ import kotlinx.coroutines.launch
 class DeviceStateMonitor(
     context: Context,
     private val scope: CoroutineScope,
-    /** 低电量自定义阈值（百分比，默认 20） */
-    lowBatteryPercent: Int = 20
+    lowBatteryPercent: Int = 20,
+    private val longUsageMinutes: Int = 120
 ) : Monitor<DeviceEvent> {
 
     internal val batteryMonitor = BatteryMonitor(context, lowBatteryPercent)
@@ -50,6 +52,7 @@ class DeviceStateMonitor(
 
     private var isStarted = false
     private var mergeJob: Job? = null
+    private var longUsageCheckJob: Job? = null
 
     override fun start() {
         if (isStarted) return
@@ -67,6 +70,14 @@ class DeviceStateMonitor(
                 }
         }
 
+        // 3. 定期检查长时间使用（每 5 分钟）
+        longUsageCheckJob = scope.launch {
+            while (isActive) {
+                delay(5 * 60 * 1000L)
+                screenMonitor.checkLongUsage(longUsageMinutes)
+            }
+        }
+
         Log.i(TAG, "DeviceStateMonitor started")
     }
 
@@ -77,9 +88,9 @@ class DeviceStateMonitor(
         // 1. 停止前最后检查一次 LONG_USAGE
         screenMonitor.checkLongUsage()
 
-        // 2. 取消合并协程
-        mergeJob?.cancel()
-        mergeJob = null
+        // 2. 取消合并协程 + 定时检查
+        mergeJob?.cancel(); mergeJob = null
+        longUsageCheckJob?.cancel(); longUsageCheckJob = null
 
         // 3. 停止子 Monitor
         batteryMonitor.stop()
