@@ -123,7 +123,7 @@ app/src/main/java/com/example/pat/
 - **[ChatGPT](https://chatgpt.com)** — 应用图标生成
 - **[GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)** — 语音合成
 - **[DeepSeek](https://deepseek.com)** — 代码编写
-- **所以没有任何人在该项目中受到伤害。
+- 所以没有任何人在该项目中受到伤害。
 - **楼先生** — 对本项目的大力支持
 
 
