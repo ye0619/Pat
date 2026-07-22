@@ -37,23 +37,29 @@ class EventConfigRepository(
         } else {
             parse(json)
         }
-        // 确保所有 EventType 都有对应配置（补充缺失的）
-        val result = configs.toMutableList()
-        val existingTypes = result.map { it.eventType }.toSet()
+        // 去重 + 确保所有 EventType 都有对应配置
+        val seen = mutableSetOf<EventType>()
+        val result = mutableListOf<EventConfig>()
+        for (c in configs) {
+            if (c.eventType !in seen) {
+                seen.add(c.eventType)
+                result.add(c)
+            }
+        }
         EventType.entries.forEach { type ->
-            if (type !in existingTypes) {
+            if (type !in seen) {
                 val firstPreset = presetRepository.getByEventType(type).firstOrNull()
                 result.add(EventConfig(
                     id = generateId(), eventType = type, enabled = true,
                     threshold = EventConfig.defaultThreshold(type),
                     presetId = firstPreset?.id ?: "",
-                    notificationEnabled = true, minIntervalMinutes = 120,
+                    notificationEnabled = true, minIntervalMinutes = 10,
                     vibrationEnabled = false, soundEnabled = false,
                     showHeadsUp = true, lockScreenPublic = true
                 ))
             }
         }
-        if (result.size != configs.size) saveAll(result)
+        if (result.size != configs.size || result.any { it.eventType !in configs.map { c -> c.eventType } }) saveAll(result)
         return result
     }
 
@@ -90,8 +96,13 @@ class EventConfigRepository(
     /**
      * 创建默认规则 —— 每个 EventType 一条，自动绑定第一个内置预设。
      */
-    fun restoreDefaults() { createDefaults().forEach { save(it) } }
-    fun restoreSingle(eventType: EventType) { createDefaults().find { it.eventType == eventType }?.let { save(it) } }
+    fun restoreDefaults() { saveAll(createDefaults()) }
+    fun restoreSingle(eventType: EventType) {
+        val configs = loadAll().toMutableList()
+        configs.removeAll { it.eventType == eventType }
+        configs.add(createDefaults().first { it.eventType == eventType })
+        saveAll(configs)
+    }
     private fun createDefaults(): List<EventConfig> {
         return EventType.entries.map { type ->
             val firstPreset = presetRepository.getByEventType(type).firstOrNull()

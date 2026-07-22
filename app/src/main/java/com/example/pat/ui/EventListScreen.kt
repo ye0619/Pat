@@ -72,8 +72,7 @@ fun EventListScreen(
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
                 // 预设事件
-                items(configs.size) { idx ->
-                    val config = configs[idx]
+                items(configs, key = { it.id.ifEmpty { it.eventType.name } }) { config ->
                     val preset = config.presetId.let { id ->
                         if (id.isNotBlank()) presetRepository?.getById(id) else null
                     }

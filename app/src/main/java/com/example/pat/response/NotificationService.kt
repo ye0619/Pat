@@ -86,18 +86,20 @@ class NotificationService(
         // ── 声音 ──
         if (enableSound) {
             builder.setSound(defaultSoundUri)
-            // Android 8+ 渠道已设置声音，此处通知级设置作为兜底兼容
+        } else if (showHeadsUp) {
+            // Heads-up 横幅需要声音或震动作为触发信号（部分 OEM 要求）
+            // 设置静默声音 URI 确保横幅弹出
+            builder.setSound(defaultSoundUri)
         } else {
             builder.setSound(null)
         }
 
-        // ── 震动（默认关闭） ──
-        if (enableVibration) {
-            builder.setVibrate(VIBRATION_PATTERN)
+        // ── 震动 ──
+        if (enableVibration || showHeadsUp) {
+            // Heads-up 横幅需震动支持（部分 OEM 即使有声音也需震动）
+            builder.setVibrate(if (enableVibration) VIBRATION_PATTERN else HEADS_UP_VIBRATION_PATTERN)
         } else {
-            // 显式传入 null 禁止震动（覆盖渠道默认值）
             builder.setVibrate(longArrayOf(0))
-            // 也尝试设置静音震动模式
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 builder.setVibrate(null)
             }
@@ -172,5 +174,8 @@ class NotificationService(
 
         /** 震动模式：延迟 0ms，震动 200ms，暂停 100ms，震动 300ms */
         val VIBRATION_PATTERN = longArrayOf(0, 200, 100, 300)
+
+        /** Heads-up 触发用轻震动（无感，仅用于激活横幅弹出机制） */
+        val HEADS_UP_VIBRATION_PATTERN = longArrayOf(0, 1)
     }
 }
