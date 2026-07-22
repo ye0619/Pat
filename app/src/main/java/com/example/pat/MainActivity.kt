@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -43,6 +44,9 @@ class MainActivity : ComponentActivity() {
     private var todayTriggerCount by mutableIntStateOf(0)
     private var refreshTrigger by mutableIntStateOf(0)
 
+    /** 主题偏好：null = 跟随系统，true = 深色，false = 浅色 */
+    private var themeOverride: Boolean? by mutableStateOf(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState); enableEdgeToEdge()
         requestNotificationPermission()
@@ -74,7 +78,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            PatTheme {
+            val systemDark = isSystemInDarkTheme()
+            val isDark = themeOverride ?: systemDark
+
+            PatTheme(darkTheme = isDark) {
                 ClickTracker {
                 when (screen) {
                     is Screen.Home -> {
@@ -83,6 +90,12 @@ class MainActivity : ComponentActivity() {
                             todayTriggerCount = svc?.ruleEngineV2?.todayTriggerCount ?: todayTriggerCount,
                             recentTriggers = svc?.ruleEngineV2?.recentTriggers ?: emptyList(),
                             onNavigateToEventList = { reloadData(); currentScreen = Screen.EventList },
+                            isDarkTheme = isDark,
+                            onToggleTheme = {
+                                themeOverride = if (themeOverride == null) !systemDark
+                                else if (themeOverride == true) false
+                                else null
+                            },
                             modifier = Modifier.fillMaxSize())
                     }
                     is Screen.EventList -> EventListScreen(

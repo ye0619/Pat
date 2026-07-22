@@ -1,58 +1,103 @@
 package com.example.pat.ui.theme
 
-import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+// ══════════════════════════════════════════════════════════════
+// Apple Design Language — Light & Dark Theme
+// 参考：DESIGN-apple.md
+//
+// 设计原则：
+// - Action Blue (#0066CC) 是唯一的交互色
+// - 无渐变、无装饰性阴影
+// - Light: 白色画布 + 米白 parchment 交替
+// - Dark: 近黑 tile 层次 + OLED 友好背景
+// ══════════════════════════════════════════════════════════════
+
+private val AppleLightColorScheme = lightColorScheme(
+    primary = ActionBlue,
+    onPrimary = CanvasWhite,
+    primaryContainer = ActionBlue.copy(alpha = 0.12f),
+    onPrimaryContainer = ActionBlue,
+
+    secondary = InkMuted80,
+    onSecondary = CanvasWhite,
+    secondaryContainer = CanvasParchment,
+    onSecondaryContainer = InkNearBlack,
+
+    tertiary = ActionBlueOnDark,
+    onTertiary = CanvasWhite,
+    tertiaryContainer = CanvasParchment,
+    onTertiaryContainer = InkMuted80,
+
+    background = CanvasWhite,
+    onBackground = InkNearBlack,
+    surface = CanvasWhite,
+    onSurface = InkNearBlack,
+    surfaceVariant = CanvasParchment,
+    onSurfaceVariant = InkMuted48,
+
+    error = StatusError,
+    onError = CanvasWhite,
+    errorContainer = StatusError.copy(alpha = 0.10f),
+    onErrorContainer = StatusError,
+
+    outline = Hairline,
+    outlineVariant = DividerSoft
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+private val AppleDarkColorScheme = darkColorScheme(
+    primary = ActionBlueOnDark,
+    onPrimary = CanvasWhite,
+    primaryContainer = ActionBlueOnDark.copy(alpha = 0.18f),
+    onPrimaryContainer = ActionBlueOnDark,
 
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+    secondary = BodyMuted,
+    onSecondary = DarkCanvas,
+    secondaryContainer = DarkSurfaceVariant,
+    onSecondaryContainer = BodyOnDark,
+
+    tertiary = ActionBlueOnDark,
+    onTertiary = CanvasWhite,
+    tertiaryContainer = DarkSurfaceVariant,
+    onTertiaryContainer = BodyMuted,
+
+    background = DarkCanvas,
+    onBackground = BodyOnDark,
+    surface = DarkSurface,
+    onSurface = BodyOnDark,
+    surfaceVariant = DarkSurfaceVariant,
+    onSurfaceVariant = BodyMuted,
+
+    error = StatusError,
+    onError = CanvasWhite,
+    errorContainer = StatusError.copy(alpha = 0.15f),
+    onErrorContainer = StatusError,
+
+    outline = DarkSurfaceVariant,
+    outlineVariant = DarkSurface
 )
 
+/**
+ * Pat 主题 —— Apple Design Language。
+ *
+ * 自动跟随系统 Dark Mode。
+ * 不使用 Material You dynamic color（会覆盖 Apple 调色板）。
+ */
 @Composable
 fun PatTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    val colorScheme = if (darkTheme) AppleDarkColorScheme else AppleLightColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
+        typography = AppleTypography,
+        shapes = AppleShapes,
         content = content
     )
 }

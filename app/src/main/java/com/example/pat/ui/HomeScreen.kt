@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -17,6 +19,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.pat.audio.AudioPlaybackState
 import com.example.pat.engine.RuleEngineV2.RecentTrigger
+import com.example.pat.ui.components.ActionButton
+import com.example.pat.ui.components.StatusIndicator
+import com.example.pat.ui.theme.AppleRadius
+import com.example.pat.ui.theme.AppleSpacing
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -36,6 +42,8 @@ fun HomeScreen(
     todayTriggerCount: Int,
     recentTriggers: List<RecentTrigger>,
     onNavigateToEventList: () -> Unit,
+    isDarkTheme: Boolean = false,
+    onToggleTheme: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // ── 反馈弹窗 ──
@@ -43,14 +51,18 @@ fun HomeScreen(
     if (showFeedback) {
         val ctx = LocalContext.current
         val clipboard = remember { ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager }
-        AlertDialog(
-            onDismissRequest = { showFeedback = false },
-            title = { Text("反馈") },
-            text = {
-                Column {
-                    Text("点击可复制：", style = MaterialTheme.typography.bodySmall,
+        Dialog(onDismissRequest = { showFeedback = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(AppleRadius.sm)
+            ) {
+                Column(modifier = Modifier.padding(AppleSpacing.lg)) {
+                    Text("反馈", style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(AppleSpacing.md))
+                    Text("点击可复制：", style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(AppleSpacing.sm))
                     val githubUrl = "https://github.com/ye0619/Pat"
                     Surface(
                         modifier = Modifier.fillMaxWidth().clickable {
@@ -60,10 +72,14 @@ fun HomeScreen(
                         shape = MaterialTheme.shapes.small,
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
-                        Text("GitHub: $githubUrl", modifier = Modifier.padding(10.dp),
-                            style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = githubUrl,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            softWrap = true
+                        )
                     }
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(AppleSpacing.xs))
                     val email = "2827135233@qq.com"
                     Surface(
                         modifier = Modifier.fillMaxWidth().clickable {
@@ -73,13 +89,21 @@ fun HomeScreen(
                         shape = MaterialTheme.shapes.small,
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
-                        Text("邮箱: $email", modifier = Modifier.padding(10.dp),
-                            style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = email,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            softWrap = true
+                        )
                     }
+                    Spacer(Modifier.height(AppleSpacing.md))
+                    TextButton(
+                        onClick = { showFeedback = false },
+                        modifier = Modifier.align(Alignment.End)
+                    ) { Text("关闭", color = MaterialTheme.colorScheme.primary) }
                 }
-            },
-            confirmButton = { TextButton(onClick = { showFeedback = false }) { Text("关闭") } }
-        )
+            }
+        }
     }
 
     // ── 首次用户须知 ──
@@ -110,31 +134,22 @@ fun HomeScreen(
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // ── 顶栏：运行状态 + 反馈按钮 ──
+        // ── 顶栏：运行状态 + 主题切换 + 反馈按钮 ──
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Surface(
-                shape = MaterialTheme.shapes.small,
-                color = if (isServiceRunning)
-                    MaterialTheme.colorScheme.primaryContainer
-                else
-                    MaterialTheme.colorScheme.errorContainer
-            ) {
-                Text(
-                    text = if (isServiceRunning) "● 正在运行" else "○ 已停止",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (isServiceRunning)
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    else
-                        MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-            IconButton(onClick = { showFeedback = true }) {
-                Text("💬", style = MaterialTheme.typography.titleMedium)
+            StatusIndicator(isActive = isServiceRunning)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onToggleTheme != null) {
+                    IconButton(onClick = onToggleTheme) {
+                        Text(if (isDarkTheme) "☀️" else "🌙", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+                IconButton(onClick = { showFeedback = true }) {
+                    Text("💬", style = MaterialTheme.typography.titleMedium)
+                }
             }
         }
 
@@ -196,7 +211,7 @@ fun HomeScreen(
                 Text(
                     text = "${todayTriggerCount}次",
                     style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
@@ -243,19 +258,11 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // ── 事件管理入口 ──
-        Button(
+        ActionButton(
+            label = "事件管理",
             onClick = onNavigateToEventList,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
-            )
-        ) {
-            Text(
-                text = "事件管理",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-        }
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

@@ -14,6 +14,7 @@ import com.example.pat.data.PresetRepository
 import com.example.pat.event.EventType
 import com.example.pat.model.EventConfig
 import com.example.pat.model.EventDefinition
+import com.example.pat.ui.components.EventCard
 
 /**
  * 统一事件管理列表 —— 预设事件 + 自定义事件混合显示。
@@ -80,12 +81,11 @@ fun EventListScreen(
                         config.reactions.joinToString(" | ") { it.text }
                     else preset?.text ?: config.customText.ifBlank { EventConfig.defaultText(config.eventType) }
 
-                    UnifiedEventCard(
+                    EventCard(
                         name = EventConfig.displayName(config.eventType),
                         subtitle = triggerSummary(config),
                         feedback = feedback,
                         enabled = config.enabled,
-                        showConflict = false,
                         onToggle = { onToggleConfig(config.copy(enabled = it)) },
                         onEdit = { onEditConfig(config) }
                     )
@@ -94,62 +94,18 @@ fun EventListScreen(
                 items(customDefs.size) { idx ->
                     val def = customDefs[idx]
                     val feedback = def.reactions.joinToString(" | ") { it.text }
-                    UnifiedEventCard(
+                    EventCard(
                         name = def.name,
                         subtitle = def.conditionSummary,
                         feedback = feedback,
                         enabled = def.enabled,
                         showConflict = def.id in conflictDefIds,
+                        showDelete = true,
                         onToggle = { onToggleDef(def.copy(enabled = it)) },
                         onEdit = { onEditDef(def) },
                         onDelete = { onDeleteDef(def) }
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun UnifiedEventCard(
-    name: String, subtitle: String, feedback: String,
-    enabled: Boolean, showConflict: Boolean,
-    onToggle: (Boolean) -> Unit, onEdit: () -> Unit,
-    onDelete: (() -> Unit)? = null
-) {
-    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
-        containerColor = if (enabled) MaterialTheme.colorScheme.surface
-        else MaterialTheme.colorScheme.surfaceVariant
-    )) {
-        Column(Modifier.padding(12.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        if (showConflict) {
-                            Spacer(Modifier.width(4.dp))
-                            Surface(shape = MaterialTheme.shapes.extraSmall,
-                                color = MaterialTheme.colorScheme.errorContainer) {
-                                Text("冲突", style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
-                            }
-                        }
-                    }
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(checked = enabled, onCheckedChange = onToggle)
-            }
-            if (feedback.isNotBlank())
-                Text(feedback, style = MaterialTheme.typography.bodyMedium, maxLines = 2,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                if (onDelete != null)
-                    TextButton(onClick = onDelete,
-                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    ) { Text("删除") }
-                TextButton(onClick = onEdit) { Text("编辑") }
             }
         }
     }
