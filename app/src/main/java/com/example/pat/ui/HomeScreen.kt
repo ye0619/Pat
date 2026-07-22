@@ -5,7 +5,9 @@ import android.content.ClipboardManager
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -113,19 +115,40 @@ fun HomeScreen(
         mutableStateOf(!prefs.getBoolean("disclaimer_accepted", false))
     }
     if (showDisclaimer) {
-        AlertDialog(
-            onDismissRequest = { },
-            title = { Text("用户须知") },
-            text = {
-                Text("本项目纯属娱乐，所有反馈内容仅供消遣。\n\n请勿将本应用用于任何严肃场合。")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    prefs.edit().putBoolean("disclaimer_accepted", true).apply()
-                    showDisclaimer = false
-                }) { Text("我知道了") }
+        Dialog(
+            onDismissRequest = { }
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(24.dp)
+                ) {
+                    Text(
+                        "用户须知",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        "本项目纯属娱乐，所有反馈内容仅供消遣。\n\n请勿将本应用用于任何严肃场合。",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = {
+                            prefs.edit().putBoolean("disclaimer_accepted", true).apply()
+                            showDisclaimer = false
+                        }) { Text("我知道了") }
+                    }
+                }
             }
-        )
+        }
     }
 
     Column(
