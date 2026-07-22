@@ -88,7 +88,9 @@ class ResponseManager(
         Log.i(TAG, "Executing reaction: text=\"$displayText\" audio=\"$audioPath\"")
 
         // 1. 通知反馈
-        if (notification.enabled && displayText.isNotBlank()) {
+        val showNotif = notification.headsUp || notification.lockScreen
+                || notification.playFeedbackAudio || notification.vibration
+        if (showNotif && displayText.isNotBlank()) {
             notificationService.show(
                 title = "Pat",
                 text = displayText,

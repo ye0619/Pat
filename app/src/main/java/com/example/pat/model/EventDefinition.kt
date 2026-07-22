@@ -24,18 +24,16 @@ data class EventDefinition(
         else conditions.joinToString("、") { it.displayText }
 
     companion object {
-        /** 预设事件占用的条件类型，自定义事件不可选用 */
-        val PRESET_CONDITION_TYPES: Set<AtomicEventType> = setOf(
-            AtomicEventType.SHAKE,
-            AtomicEventType.DROP,
-            AtomicEventType.CHARGE_START,
-            AtomicEventType.BATTERY_LEVEL,
-            AtomicEventType.LONG_USAGE
+        /** 排除的条件类型：预设占用 + IMPACT(拍击) */
+        private val EXCLUDED_TYPES: Set<AtomicEventType> = setOf(
+            AtomicEventType.SHAKE, AtomicEventType.DROP,
+            AtomicEventType.CHARGE_START, AtomicEventType.BATTERY_LEVEL,
+            AtomicEventType.LONG_USAGE, AtomicEventType.IMPACT
         )
 
-        /** 自定义事件可选的条件类型 */
+        /** 自定义事件可选的条件类型（单条件） */
         val AVAILABLE_CONDITION_TYPES: List<AtomicEventType> =
-            AtomicEventType.entries.filter { it !in PRESET_CONDITION_TYPES }
+            AtomicEventType.entries.filter { it !in EXCLUDED_TYPES }
 
         fun fromEventConfig(config: EventConfig, reactions: List<ReactionItem>): EventDefinition {
             val condition = ConditionDef.fromEventType(config.eventType, config.threshold)

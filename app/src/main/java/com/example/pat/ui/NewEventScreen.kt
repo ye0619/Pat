@@ -18,8 +18,7 @@ import com.example.pat.model.*
 
 /**
  * 新建/编辑事件界面。
- * 简化版：移除 AND/OR 组合，仅支持平铺条件列表。
- * 可选条件排除预设事件已占用的类型。
+ * 单条件选择，无 AND/OR 组合，无时间窗口。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,12 +32,10 @@ fun NewEventScreen(
     val context = LocalContext.current
 
     var name by remember { mutableStateOf(existing?.name ?: "") }
-    var conditions by remember {
-        mutableStateOf(existing?.conditions?.toMutableList() ?: mutableListOf(
-            ConditionDef(EventDefinition.AVAILABLE_CONDITION_TYPES.first())
-        ))
+    var condition by remember {
+        mutableStateOf(existing?.conditions?.firstOrNull()
+            ?: ConditionDef(EventDefinition.AVAILABLE_CONDITION_TYPES.first()))
     }
-    var timeWindowMs by remember { mutableFloatStateOf((existing?.timeWindowMs ?: 5000L) / 1000f) }
     var minInterval by remember { mutableFloatStateOf((existing?.minIntervalMinutes ?: 120).toFloat()) }
     var reactions by remember {
         mutableStateOf(existing?.reactions?.toMutableList() ?: mutableListOf(ReactionItem()))
@@ -70,8 +67,8 @@ fun NewEventScreen(
                     onSave(EventDefinition(
                         id = existing?.id ?: "", name = name.ifBlank { "未命名事件" },
                         enabled = existing?.enabled ?: false, isPreset = false,
-                        conditions = conditions.filter { it.atomicType in EventDefinition.AVAILABLE_CONDITION_TYPES },
-                        timeWindowMs = (timeWindowMs * 1000).toLong(),
+                        conditions = listOf(condition),
+                        timeWindowMs = 5000L,
                         reactions = reactions.filter { it.text.isNotBlank() || it.audioPath.isNotBlank() },
                         notification = NotificationConfig(notif, headsUp, playAudio, vibrate, lockScreen),
                         minIntervalMinutes = minInterval.toInt()
@@ -85,46 +82,18 @@ fun NewEventScreen(
 
             // 1. 事件名称
             OutlinedTextField(name, { name = it }, label = { Text("事件名称") },
-                placeholder = { Text("例：睡觉提醒") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth())
+                placeholder = { Text("例：睡觉提醒") }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
             Spacer(Modifier.height(16.dp)); HorizontalDivider(); Spacer(Modifier.height(12.dp))
 
-            // 2. 触发条件
+            // 2. 触发条件（单条件）
             Text("触发条件", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text("所有条件需同时满足（AND关系）",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
-
-            conditions.forEachIndexed { idx, cond ->
-                // 只显示可用条件类型
-                SimpleConditionCard(cond, idx + 1, { updated ->
-                    conditions = conditions.toMutableList().also { it[idx] = updated }
-                }, {
-                    if (conditions.size > 1)
-                        conditions = conditions.toMutableList().also { it.removeAt(idx) }
-                }, conditions.size > 1)
-                Spacer(Modifier.height(6.dp))
-            }
-
-            TextButton(onClick = {
-                conditions = conditions.toMutableList().also {
-                    it.add(ConditionDef(EventDefinition.AVAILABLE_CONDITION_TYPES.first()))
-                }
-            }) { Text("+ 添加条件") }
+            SingleConditionCard(condition) { condition = it }
 
             Spacer(Modifier.height(16.dp)); HorizontalDivider(); Spacer(Modifier.height(12.dp))
 
-            // 3. 时间窗口
-            Text("时间窗口", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text("${(timeWindowMs * 1000).toInt()}ms内满足所有条件则触发",
-                style = MaterialTheme.typography.bodyMedium)
-            Slider(timeWindowMs, { v -> timeWindowMs = v }, valueRange = 0.1f..20f, steps = 198,
-                modifier = Modifier.fillMaxWidth())
-
-            Spacer(Modifier.height(16.dp)); HorizontalDivider(); Spacer(Modifier.height(12.dp))
-
-            // 4. 最小触发时间间隔
+            // 3. 最小触发时间间隔
             Text("最小触发时间间隔", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Text("${minInterval.toInt()}分钟", style = MaterialTheme.typography.bodyMedium)
             Slider(minInterval, { v -> minInterval = v }, valueRange = 0f..360f, steps = 71,
@@ -132,7 +101,7 @@ fun NewEventScreen(
 
             Spacer(Modifier.height(16.dp)); HorizontalDivider(); Spacer(Modifier.height(12.dp))
 
-            // 5. 反馈
+            // 4. 反馈
             Text("反馈", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             reactions.forEachIndexed { idx, item ->
@@ -147,7 +116,7 @@ fun NewEventScreen(
 
             Spacer(Modifier.height(16.dp)); HorizontalDivider(); Spacer(Modifier.height(12.dp))
 
-            // 6. 通知
+            // 5. 通知
             Text("通知", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Card(Modifier.fillMaxWidth()) {
@@ -166,57 +135,36 @@ fun NewEventScreen(
     }
 }
 
-/** 简化条件卡片 —— 仅可选非预设条件类型 */
 @Composable
-private fun SimpleConditionCard(
-    cond: ConditionDef, index: Int, onUpdate: (ConditionDef) -> Unit,
-    onRemove: () -> Unit, canRemove: Boolean
-) {
+private fun SingleConditionCard(cond: ConditionDef, onUpdate: (ConditionDef) -> Unit) {
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
         containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.padding(10.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = MaterialTheme.shapes.small,
-                    color = MaterialTheme.colorScheme.primaryContainer) {
-                    Text("$index", Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer)
+            var typeExpanded by remember { mutableStateOf(false) }
+            Box(Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = { typeExpanded = true }, Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)) {
+                    Text(cond.atomicType.displayName, style = MaterialTheme.typography.bodyMedium)
                 }
-                Spacer(Modifier.width(8.dp))
-                var typeExpanded by remember { mutableStateOf(false) }
-                Box(Modifier.weight(1f)) {
-                    OutlinedButton(onClick = { typeExpanded = true }, Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
-                        Text(cond.atomicType.displayName, maxLines = 1, style = MaterialTheme.typography.bodySmall)
-                    }
-                    DropdownMenu(typeExpanded, { typeExpanded = false }) {
-                        EventDefinition.AVAILABLE_CONDITION_TYPES.forEach { type ->
-                            DropdownMenuItem(text = {
-                                Text(type.displayName, style = MaterialTheme.typography.bodyMedium)
-                            }, onClick = {
-                                val isState = type in listOf(AtomicEventType.SCREEN_ON,
-                                    AtomicEventType.SCREEN_OFF, AtomicEventType.CHARGE_STOP)
-                                onUpdate(when {
-                                    type.supportsTimeRange -> cond.copy(atomicType = type, valueMin = 22, valueMax = 6)
-                                    type == AtomicEventType.LONG_PRESS -> cond.copy(atomicType = type, value = 2000)
-                                    type == AtomicEventType.CLICK -> cond.copy(atomicType = type, count = 3, value = 3000)
-                                    else -> cond.copy(atomicType = type, checkCurrentState = isState)
-                                })
-                                typeExpanded = false
+                DropdownMenu(typeExpanded, { typeExpanded = false }) {
+                    EventDefinition.AVAILABLE_CONDITION_TYPES.forEach { type ->
+                        DropdownMenuItem(text = { Text(type.displayName) }, onClick = {
+                            onUpdate(when {
+                                type.supportsTimeRange -> cond.copy(atomicType = type, valueMin = 22, valueMax = 6)
+                                type == AtomicEventType.LONG_PRESS -> cond.copy(atomicType = type, value = 2000)
+                                type == AtomicEventType.CLICK -> cond.copy(atomicType = type, count = 3, value = 3000)
+                                else -> cond.copy(atomicType = type, checkCurrentState = false)
                             })
-                        }
+                            typeExpanded = false
+                        })
                     }
                 }
-                if (canRemove)
-                    TextButton(onClick = onRemove, contentPadding = PaddingValues(4.dp)) {
-                        Text("✕", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
-                    }
             }
 
             // 参数编辑
             when {
                 cond.atomicType == AtomicEventType.CLICK -> {
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(8.dp))
                     var ct by remember(cond.count) { mutableStateOf(cond.count.toString()) }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("次数:", style = MaterialTheme.typography.bodySmall)
@@ -225,14 +173,14 @@ private fun SimpleConditionCard(
                             f.toIntOrNull()?.coerceIn(1, 99)?.let { onUpdate(cond.copy(count = it)) }
                         }, Modifier.width(60.dp), singleLine = true, textStyle = MaterialTheme.typography.bodySmall)
                         Spacer(Modifier.width(8.dp))
-                        val detectMs = cond.value ?: 3000
-                        Text("检测时间: ${detectMs}ms", style = MaterialTheme.typography.bodySmall)
-                        Slider(detectMs.toFloat(), { v -> onUpdate(cond.copy(value = v.toInt())) },
+                        val ms = cond.value ?: 3000
+                        Text("检测时间: ${ms}ms", style = MaterialTheme.typography.bodySmall)
+                        Slider(ms.toFloat(), { v -> onUpdate(cond.copy(value = v.toInt())) },
                             valueRange = 100f..10000f, steps = 98, modifier = Modifier.weight(1f))
                     }
                 }
                 cond.atomicType == AtomicEventType.LONG_PRESS -> {
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("按住时长:", style = MaterialTheme.typography.bodySmall)
                         var vt by remember(cond.value ?: 2000) { mutableStateOf((cond.value ?: 2000).toString()) }
@@ -246,7 +194,7 @@ private fun SimpleConditionCard(
                         valueRange = 1000f..5000f, modifier = Modifier.fillMaxWidth())
                 }
                 cond.atomicType.supportsTimeRange -> {
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("时段: ", style = MaterialTheme.typography.bodySmall)
                         HourPicker(cond.valueMin ?: 22) { onUpdate(cond.copy(valueMin = it)) }
@@ -257,16 +205,6 @@ private fun SimpleConditionCard(
                 }
             }
 
-            // 状态事件：查询当前状态
-            val isState = cond.atomicType in listOf(AtomicEventType.SCREEN_ON,
-                AtomicEventType.SCREEN_OFF, AtomicEventType.CHARGE_STOP)
-            if (isState) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(cond.checkCurrentState, { onUpdate(cond.copy(checkCurrentState = it)) })
-                    Text("查询当前状态", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
         }
     }
 }

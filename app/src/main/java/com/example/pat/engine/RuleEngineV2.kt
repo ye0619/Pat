@@ -146,11 +146,11 @@ class RuleEngineV2(
     }
 
     private fun evaluateEventDefinitions(atomicType: AtomicEventType, now: Long): List<PriorityResolver.MatchedRule> {
+        // 只评估条件中包含当前事件类型的自定义事件，避免无关事件触发误判
         val defs = definitionRepository.loadAll()
-            .filter { it.enabled && !it.isPreset && it.conditions.isNotEmpty() }
+            .filter { it.enabled && !it.isPreset && it.conditions.any { c -> c.atomicType == atomicType } }
 
         return defs.mapNotNull { def ->
-            // 所有条件 AND：全部满足才触发
             val satisfied = if (def.conditions.size == 1)
                 evaluator.evaluate(def.conditions.first(), def.timeWindowMs, now)
             else

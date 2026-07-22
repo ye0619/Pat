@@ -22,6 +22,7 @@ import com.example.pat.service.CompanionForegroundService
 import com.example.pat.ui.EditEventScreen
 import com.example.pat.ui.EventListScreen
 import com.example.pat.ui.HomeScreen
+import com.example.pat.ui.ClickTracker
 import com.example.pat.ui.NewEventScreen
 import com.example.pat.ui.PresetEditScreen
 import com.example.pat.ui.navigation.Screen
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val screen = currentScreen; refreshTrigger
             PatTheme {
+                ClickTracker {
                 when (screen) {
                     is Screen.Home -> {
                         val svc = CompanionForegroundServiceHolder.instance
@@ -122,6 +124,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxSize()
                         )
                     }
+                }
                 }
             }
         }
