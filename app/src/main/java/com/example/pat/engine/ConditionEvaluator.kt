@@ -2,12 +2,12 @@ package com.example.pat.engine
 
 import com.example.pat.event.AtomicEvent
 import com.example.pat.event.AtomicEventType
-import com.example.pat.model.ConditionClause
+import com.example.pat.model.ConditionDef
 
 /**
  * 当前设备状态提供者 —— 用于 [ConditionEvaluator] 查询实时设备状态。
  *
- * 当 [ConditionClause.checkCurrentState] = true 且事件类型是状态事件时，
+ * 当 [ConditionDef.checkCurrentState] = true 且事件类型是状态事件时，
  * 评估器通过此接口查询当前状态，而非查询事件历史缓冲区。
  */
 interface DeviceStateProvider {
@@ -40,7 +40,7 @@ class ConditionEvaluator(
      * @param now 当前时间戳
      * @return 是否满足条件
      */
-    fun evaluate(clause: ConditionClause, windowMs: Long, now: Long): Boolean {
+    fun evaluate(clause: ConditionDef, windowMs: Long, now: Long): Boolean {
         // ══════════════════════════════════════════════════════════════
         // 模式 1：当前状态查询（仅状态事件）
         // ══════════════════════════════════════════════════════════════
@@ -53,25 +53,25 @@ class ConditionEvaluator(
         // ══════════════════════════════════════════════════════════════
 
         // 1. 时间段条件：检查最近事件的小时是否在范围内
-        if (clause.eventType.supportsTimeRange && clause.valueMin != null && clause.valueMax != null) {
-            val events = history.getInWindow(clause.eventType, windowMs, now)
+        if (clause.atomicType.supportsTimeRange && clause.valueMin != null && clause.valueMax != null) {
+            val events = history.getInWindow(clause.atomicType, windowMs, now)
             if (events.isEmpty()) return false
             val last = events.last() as? AtomicEvent.LateNight ?: return false
             return isHourInRange(last.hour, clause.valueMin, clause.valueMax)
         }
 
         // 2. 检查发生次数
-        if (clause.eventType.supportsCount) {
-            val actualCount = history.countInWindow(clause.eventType, windowMs, now)
+        if (clause.atomicType.supportsCount) {
+            val actualCount = history.countInWindow(clause.atomicType, windowMs, now)
             if (actualCount < clause.count) return false
         } else {
             // 非计数事件：至少发生一次
-            if (history.countInWindow(clause.eventType, windowMs, now) < 1) return false
+            if (history.countInWindow(clause.atomicType, windowMs, now) < 1) return false
         }
 
         // 3. 如果有数值条件，检查最新一次事件的值
         if (clause.operator != null && clause.value != null) {
-            val latestValue = getLatestValue(clause.eventType, windowMs, now) ?: return false
+            val latestValue = getLatestValue(clause.atomicType, windowMs, now) ?: return false
             return compareValue(latestValue, clause.operator, clause.value)
         }
 
@@ -90,7 +90,7 @@ class ConditionEvaluator(
      * 注意：如果某个条件使用了 checkCurrentState，则跳过对该条件的历史查询，
      * 直接从 stateProvider 获取当前状态进行判断。
      */
-    fun evaluateSequence(clauses: List<ConditionClause>, windowMs: Long, now: Long): Boolean {
+    fun evaluateSequence(clauses: List<ConditionDef>, windowMs: Long, now: Long): Boolean {
         if (clauses.isEmpty()) return false
         if (clauses.size == 1) return evaluate(clauses[0], windowMs, now)
 
@@ -105,7 +105,7 @@ class ConditionEvaluator(
                 continue
             }
 
-            val events = history.getInWindow(clause.eventType, windowMs, now)
+            val events = history.getInWindow(clause.atomicType, windowMs, now)
                 .filter { it.timestamp >= searchFrom }
 
             // 检查是否有足够次数满足当前条件
@@ -138,10 +138,10 @@ class ConditionEvaluator(
      * - CHARGE_START → stateProvider.isCharging
      * - CHARGE_STOP → !stateProvider.isCharging
      */
-    private fun evaluateCurrentState(clause: ConditionClause): Boolean {
+    private fun evaluateCurrentState(clause: ConditionDef): Boolean {
         val provider = stateProvider ?: return false
 
-        return when (clause.eventType) {
+        return when (clause.atomicType) {
             AtomicEventType.SCREEN_ON -> provider.isScreenOn
             AtomicEventType.SCREEN_OFF -> !provider.isScreenOn
             AtomicEventType.CHARGE_START -> provider.isCharging
@@ -170,13 +170,13 @@ class ConditionEvaluator(
         else -> null
     }
 
-    private fun compareValue(actual: Int, op: ConditionClause.CompareOp, expected: Int): Boolean {
+    private fun compareValue(actual: Int, op: ConditionDef.CompareOp, expected: Int): Boolean {
         return when (op) {
-            ConditionClause.CompareOp.LESS_THAN -> actual < expected
-            ConditionClause.CompareOp.LESS_EQUAL -> actual <= expected
-            ConditionClause.CompareOp.GREATER_THAN -> actual > expected
-            ConditionClause.CompareOp.GREATER_EQUAL -> actual >= expected
-            ConditionClause.CompareOp.EQUAL -> actual == expected
+            ConditionDef.CompareOp.LESS_THAN -> actual < expected
+            ConditionDef.CompareOp.LESS_EQUAL -> actual <= expected
+            ConditionDef.CompareOp.GREATER_THAN -> actual > expected
+            ConditionDef.CompareOp.GREATER_EQUAL -> actual >= expected
+            ConditionDef.CompareOp.EQUAL -> actual == expected
         }
     }
 

@@ -17,7 +17,7 @@ import com.example.pat.CompanionForegroundServiceHolder
 import com.example.pat.MainActivity
 import com.example.pat.data.EventConfigRepository
 import com.example.pat.data.PresetRepository
-import com.example.pat.data.UserRuleRepository
+import com.example.pat.data.EventDefinitionRepository
 import com.example.pat.detector.DropDetector
 import com.example.pat.detector.DropResult
 import com.example.pat.detector.ImpactDetector
@@ -85,7 +85,7 @@ class CompanionForegroundService : Service() {
     // ── 数据层 ──
     private lateinit var presetRepository: PresetRepository
     private lateinit var configRepository: EventConfigRepository
-    private lateinit var userRuleRepository: UserRuleRepository
+    private lateinit var definitionRepository: EventDefinitionRepository
 
     // ── 引擎（v3 统一） ──
     lateinit var ruleEngineV2: RuleEngineV2
@@ -115,15 +115,20 @@ class CompanionForegroundService : Service() {
         // 初始化数据层
         presetRepository = PresetRepository(this)
         configRepository = EventConfigRepository(this, presetRepository)
-        userRuleRepository = UserRuleRepository(this)
+        definitionRepository = EventDefinitionRepository(this)
 
-        // 读取用户配置的低电量阈值
+        // 读取用户配置的阈值
         val lowBatteryThreshold = configRepository
             .getByEventType(EventType.LOW_BATTERY)?.threshold
             ?: EventConfig.defaultThreshold(EventType.LOW_BATTERY)
+        val longUsageThreshold = configRepository
+            .getByEventType(EventType.SCREEN_LONG_USAGE)?.threshold
+            ?: EventConfig.defaultThreshold(EventType.SCREEN_LONG_USAGE)
 
         // 初始化设备状态监控器
-        deviceStateMonitor = DeviceStateMonitor(this, serviceScope, lowBatteryPercent = lowBatteryThreshold)
+        deviceStateMonitor = DeviceStateMonitor(this, serviceScope,
+            lowBatteryPercent = lowBatteryThreshold,
+            longUsageMinutes = longUsageThreshold)
 
         // 初始化传感器管理器
         sensorManager = MotionSensorManager(this)
@@ -135,7 +140,8 @@ class CompanionForegroundService : Service() {
         val stateProvider = ServiceDeviceStateProvider(this)
         ruleEngineV2 = RuleEngineV2(
             configRepository = configRepository,
-            ruleRepository = userRuleRepository,
+            definitionRepository = definitionRepository,
+            presetRepository = presetRepository,
             scope = serviceScope,
             stateProvider = stateProvider
         )

@@ -1,7 +1,5 @@
 package com.example.pat.ui
 
-import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -19,16 +17,9 @@ import com.example.pat.event.EventType
 import com.example.pat.model.EventConfig
 import com.example.pat.model.ReactionItem
 import com.example.pat.model.ReactionPreset
-import com.example.pat.ui.theme.PatTheme
 
 /**
- * 基础事件编辑页面 —— 配置反馈内容（文本+音频池）和通知方式。
- *
- * v2 改进：
- * - 多 ReactionItem 编辑（+ 添加按钮，列表展示，每项包含 text + audio）
- * - 预设选择：RadioButton 列表 + 选中后自动填充反应池
- * - 高级设置折叠（priority, cooldown）
- * - 阈值仅对 LONG_USAGE / LOW_BATTERY 显示
+ * 预设事件编辑页面。固定顶栏：返回 | 事件名称 | 保存 + 恢复默认
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,542 +29,250 @@ fun EditEventScreen(
     onCreateCustomPreset: (EventType) -> Unit,
     onSave: (EventConfig) -> Unit,
     onPreviewAsset: (String) -> Unit,
+    onRestoreDefaults: (EventType) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // ── 编辑状态 ──
     var enabled by remember { mutableStateOf(config.enabled) }
     var threshold by remember { mutableFloatStateOf(config.threshold.toFloat()) }
     var selectedPresetId by remember { mutableStateOf(config.presetId) }
-    var notificationEnabled by remember { mutableStateOf(config.notificationEnabled) }
-    var vibrationEnabled by remember { mutableStateOf(config.vibrationEnabled) }
-    var soundEnabled by remember { mutableStateOf(config.soundEnabled) }
-    var showHeadsUp by remember { mutableStateOf(config.showHeadsUp) }
-    var lockScreenPublic by remember { mutableStateOf(config.lockScreenPublic) }
-    var minIntervalMinutes by remember { mutableFloatStateOf(config.minIntervalMinutes.toFloat()) }
-    var priority by remember { mutableFloatStateOf(config.priority.toFloat()) }
-
-    // v2: 反应池编辑 — 从 config.reactions 或预设/customText+customAudioPath 初始化
     var reactions by remember {
-        mutableStateOf(
-            if (config.reactions.isNotEmpty()) config.reactions.toMutableList()
-            else mutableListOf(ReactionItem(text = config.customText, audioPath = config.customAudioPath))
-        )
+        mutableStateOf(config.reactions.toMutableList().ifEmpty {
+            mutableListOf(ReactionItem(text = config.customText, audioPath = config.customAudioPath))
+        })
     }
+    var notifEnabled by remember { mutableStateOf(config.notificationEnabled) }
+    var headsUp by remember { mutableStateOf(config.showHeadsUp) }
+    var playAudio by remember { mutableStateOf(config.soundEnabled) }
+    var vibrate by remember { mutableStateOf(config.vibrationEnabled) }
+    var lockScreen by remember { mutableStateOf(config.lockScreenPublic) }
+    var minInterval by remember { mutableFloatStateOf(config.minIntervalMinutes.toFloat()) }
 
-    // 高级设置折叠
-    var showAdvanced by remember { mutableStateOf(false) }
+    val availablePresets = remember { presetRepository.getByEventType(config.eventType) }
+    val selectedPreset = remember(selectedPresetId) { availablePresets.find { it.id == selectedPresetId } }
 
-    // ── 可用预设列表 ──
-    val availablePresets = remember {
-        presetRepository.getByEventType(config.eventType)
-    }
-    val selectedPreset = remember(selectedPresetId) {
-        availablePresets.find { it.id == selectedPresetId }
-    }
-
-    val showThreshold = config.eventType == EventType.SCREEN_LONG_USAGE
+    val showSlider = config.eventType == EventType.SCREEN_LONG_USAGE
             || config.eventType == EventType.LOW_BATTERY
-
-    val thresholdLabel = when (config.eventType) {
-        EventType.SCREEN_LONG_USAGE -> "分钟"
-        EventType.LOW_BATTERY -> "%"
-        else -> ""
+    val sliderLabel = when (config.eventType) {
+        EventType.SCREEN_LONG_USAGE -> "分钟"; EventType.LOW_BATTERY -> "%"; else -> ""
+    }
+    val sliderRange = when (config.eventType) {
+        EventType.SCREEN_LONG_USAGE -> 1f..1439f; EventType.LOW_BATTERY -> 1f..99f; else -> 0f..100f
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
-        // ── 标题栏 ──
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = onBack) { Text("< 返回") }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "编辑 - ${EventConfig.displayName(config.eventType)}",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.weight(1f))
-            Surface(
-                shape = MaterialTheme.shapes.small,
-                color = MaterialTheme.colorScheme.secondaryContainer
-            ) {
-                Text(
-                    text = "基础事件",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // ── 启用开关 ──
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("启用事件", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-            Switch(checked = enabled, onCheckedChange = { enabled = it })
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // ── 阈值滑块（仅适用类型） ──
-        if (showThreshold) {
-            Text(
-                text = "触发条件: ${threshold.toInt()}$thresholdLabel",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            val sliderRange = when (config.eventType) {
-                EventType.SCREEN_LONG_USAGE -> 30f..300f
-                EventType.LOW_BATTERY -> 5f..50f
-                else -> 0f..100f
-            }
-
-            Slider(
-                value = threshold,
-                onValueChange = { threshold = it },
-                valueRange = sliderRange,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        // ═══════════════════════════════════════════
-        // 预设选择（保持原有 RadioButton 列表）
-        // ═══════════════════════════════════════════
-        Text(
-            text = "选择反馈预设",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (availablePresets.isEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Text(
-                    text = "暂无可用预设，请创建自定义预设",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-        } else {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.selectableGroup()) {
-                    availablePresets.forEach { preset ->
-                        val isSelected = preset.id == selectedPresetId
-                        PresetRadioRow(
-                            preset = preset,
-                            isSelected = isSelected,
-                            onSelect = {
-                                selectedPresetId = preset.id
-                                // 选中预设时自动填充反应池
-                                reactions = mutableListOf(
-                                    ReactionItem(text = preset.text, audioPath = preset.audioAssetPath)
-                                )
-                            },
-                            onPreview = {
-                                if (preset.audioAssetPath.isNotBlank()) {
-                                    onPreviewAsset(preset.audioAssetPath)
-                                }
-                            }
-                        )
-                    }
+    Scaffold(topBar = {
+        TopAppBar(
+            title = { Text(EventConfig.displayName(config.eventType), fontWeight = FontWeight.Bold) },
+            navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
+            actions = {
+                var menuExpanded by remember { mutableStateOf(false) }
+                TextButton(onClick = {
+                    onSave(buildConfig(config, enabled, threshold.toInt(), selectedPresetId, reactions,
+                        notifEnabled, headsUp, playAudio, vibrate, lockScreen, minInterval.toInt()))
+                }) { Text("保存", color = MaterialTheme.colorScheme.primary) }
+                IconButton(onClick = { menuExpanded = true }) {
+                    Text("⋮", style = MaterialTheme.typography.titleMedium)
                 }
+                DropdownMenu(menuExpanded, { menuExpanded = false }) {
+                    DropdownMenuItem(text = { Text("恢复默认") }, onClick = {
+                        menuExpanded = false; onRestoreDefaults(config.eventType)
+                    })
+                }
+            })
+    }, modifier = modifier.fillMaxSize()) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)
+            .verticalScroll(rememberScrollState())) {
+            Spacer(Modifier.height(8.dp))
+
+            // 1. 启用事件
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("启用事件", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Switch(checked = enabled, onCheckedChange = { enabled = it })
             }
-        }
+            Spacer(Modifier.height(16.dp)); HorizontalDivider(); Spacer(Modifier.height(12.dp))
 
-        Spacer(modifier = Modifier.height(8.dp))
+            // 2. 触发条件
+            Text("触发条件", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
 
-        TextButton(onClick = { onCreateCustomPreset(config.eventType) }) {
-            Text("+ 创建自定义预设")
-        }
+            if (showSlider) {
+                val valueText = "${threshold.toInt()}$sliderLabel"
+                Text(when (config.eventType) {
+                    EventType.SCREEN_LONG_USAGE -> "长时间使用：$valueText"
+                    EventType.LOW_BATTERY -> "低电量：$valueText"
+                    else -> valueText
+                }, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(4.dp))
+                SliderWithInput(threshold, { threshold = it }, sliderRange, sliderLabel,
+                    steps = sliderRange.endInclusive.toInt() - sliderRange.start.toInt() - 1)
+            } else when (config.eventType) {
+                EventType.CHARGE_START -> Text("触发条件：手机开始充电，无法更改",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                EventType.SHAKE -> ShakeConditionPanel()
+                EventType.DROP -> {
+                    Text("坠落：检测到短暂失重，随后发生强烈冲击",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Text("使用XYZ合加速度和时间状态机判断，参数无法修改",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                else -> {}
+            }
 
-        Spacer(modifier = Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp)); HorizontalDivider(); Spacer(Modifier.height(12.dp))
 
-        // ── 当前选中预设详情 ──
-        if (selectedPreset != null) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "已选: ${selectedPreset.name}",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                text = "文本: ${selectedPreset.text}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            if (selectedPreset.audioAssetPath.isNotBlank()) {
-                                Text(
-                                    text = "音频: ${selectedPreset.audioAssetPath}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
+            // 3. 选择反馈
+            Text("选择反馈", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+
+            if (availablePresets.isEmpty()) {
+                Text("暂无可用预设", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.selectableGroup()) {
+                        availablePresets.forEach { preset ->
+                            FeedbackRadioRow(preset, preset.id == selectedPresetId, {
+                                selectedPresetId = preset.id
+                                reactions = mutableListOf(ReactionItem(text = preset.text, audioPath = preset.audioAssetPath))
+                            }, { if (preset.audioAssetPath.isNotBlank()) onPreviewAsset(preset.audioAssetPath) })
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedButton(
-                        onClick = { onPreviewAsset(selectedPreset.audioAssetPath) },
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    ) {
-                        Text("试听")
-                    }
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = { onCreateCustomPreset(config.eventType) }) { Text("+ 新建反馈") }
 
-        // ═══════════════════════════════════════════
-        // 反馈池编辑（v2：多 ReactionItem）
-        // ═══════════════════════════════════════════
-        Text(
-            text = "反馈内容池（高级）",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = "触发时随机选择一条。预设选择会自动填充第一项。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.height(16.dp)); HorizontalDivider(); Spacer(Modifier.height(12.dp))
 
-        reactions.forEachIndexed { index, item ->
-            ReactionItemCard(
-                index = index,
-                item = item,
-                onUpdate = { updated ->
-                    reactions = reactions.toMutableList().also { it[index] = updated }
-                },
-                onRemove = {
-                    if (reactions.size > 1) {
-                        reactions = reactions.toMutableList().also { it.removeAt(index) }
-                    }
-                },
-                onPreview = { path ->
-                    if (path.isNotBlank()) onPreviewAsset(path)
-                },
-                canRemove = reactions.size > 1
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-        }
-
-        TextButton(onClick = {
-            reactions = reactions.toMutableList().also { it.add(ReactionItem()) }
-        }) {
-            Text("+ 添加反馈项")
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // ── 通知设置 ──
-        Text(
-            text = "通知设置",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                NotificationSwitchRow(
-                    label = "通知总开关",
-                    description = "事件触发时发送通知",
-                    checked = notificationEnabled,
-                    onCheckedChange = { notificationEnabled = it }
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                NotificationSwitchRow(
-                    label = "弹窗横幅",
-                    description = "屏幕顶部弹出横幅提醒",
-                    checked = showHeadsUp,
-                    onCheckedChange = { showHeadsUp = it },
-                    enabled = notificationEnabled
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                NotificationSwitchRow(
-                    label = "播放声音",
-                    description = "系统通知提示音",
-                    checked = soundEnabled,
-                    onCheckedChange = { soundEnabled = it },
-                    enabled = notificationEnabled
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                NotificationSwitchRow(
-                    label = "开启震动",
-                    description = "通知时震动（默认关闭）",
-                    checked = vibrationEnabled,
-                    onCheckedChange = { vibrationEnabled = it },
-                    enabled = notificationEnabled
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                NotificationSwitchRow(
-                    label = "锁屏显示内容",
-                    description = "锁屏时显示通知详情",
-                    checked = lockScreenPublic,
-                    onCheckedChange = { lockScreenPublic = it },
-                    enabled = notificationEnabled
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // ── 高级设置（折叠） ──
-        Card(
-            modifier = Modifier.fillMaxWidth().animateContentSize(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { showAdvanced = !showAdvanced },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("高级设置", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                    Text(if (showAdvanced) "▲" else "▼")
-                }
-
-                if (showAdvanced) {
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text("优先级: ${priority.toInt()}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        text = "多个事件同时触发时，高优先级事件优先执行",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Slider(value = priority, onValueChange = { priority = it },
-                        valueRange = 1f..10f, steps = 8, modifier = Modifier.fillMaxWidth())
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = "最小触发间隔: ${minIntervalMinutes.toInt()}分钟",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "同一事件在此时间内不会重复触发。0 = 无限制。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Slider(
-                        value = minIntervalMinutes,
-                        onValueChange = { minIntervalMinutes = it },
-                        valueRange = 0f..60f,
-                        steps = 11,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+            // 4. 通知（全部默认关闭）
+            Text("通知", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(8.dp))
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    NotifRow("横幅通知", "需在手机设置中打开横幅通知", headsUp) { headsUp = it }
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    NotifRow("播放声音", "播放反馈中的音频文件", playAudio) { playAudio = it }
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    NotifRow("振动", "", vibrate) { vibrate = it }
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    NotifRow("锁屏显示内容", "", lockScreen) { lockScreen = it }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp)); HorizontalDivider(); Spacer(Modifier.height(12.dp))
 
-        // ── 保存按钮 ──
-        Button(
-            onClick = {
-                onSave(
-                    config.copy(
-                        enabled = enabled,
-                        threshold = threshold.toInt(),
-                        presetId = selectedPresetId,
-                        notificationEnabled = notificationEnabled,
-                        vibrationEnabled = vibrationEnabled,
-                        soundEnabled = soundEnabled,
-                        showHeadsUp = showHeadsUp,
-                        lockScreenPublic = lockScreenPublic,
-                        minIntervalMinutes = minIntervalMinutes.toInt(),
-                        priority = priority.toInt(),
-                        customText = reactions.firstOrNull()?.text ?: "",
-                        customAudioPath = reactions.firstOrNull()?.audioPath ?: "",
-                        reactions = reactions.filter { it.text.isNotBlank() || it.audioPath.isNotBlank() }
-                    )
-                )
-            },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = reactions.any { it.text.isNotBlank() },
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-        ) {
-            Text("保存", style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(vertical = 4.dp))
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-    }
-}
-
-/**
- * 预设单选行 —— RadioButton + 文本 + 试听按钮。
- */
-@Composable
-private fun PresetRadioRow(
-    preset: ReactionPreset,
-    isSelected: Boolean,
-    onSelect: () -> Unit,
-    onPreview: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .selectable(
-                selected = isSelected,
-                onClick = onSelect,
-                role = Role.RadioButton
-            )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RadioButton(
-            selected = isSelected,
-            onClick = null  // handled by selectable modifier
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = preset.text,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-            )
-            Text(
-                text = preset.name,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        if (preset.audioAssetPath.isNotBlank()) {
-            TextButton(onClick = onPreview) { Text("试听") }
-        }
-    }
-}
-
-/**
- * 单个 ReactionItem 编辑卡片。
- */
-@Composable
-private fun ReactionItemCard(
-    index: Int,
-    item: ReactionItem,
-    onUpdate: (ReactionItem) -> Unit,
-    onRemove: () -> Unit,
-    onPreview: (String) -> Unit,
-    canRemove: Boolean
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(Modifier.padding(10.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("反馈 #${index + 1}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f))
-                if (item.audioPath.isNotBlank()) {
-                    TextButton(onClick = { onPreview(item.audioPath) }) { Text("试听", style = MaterialTheme.typography.labelSmall) }
-                }
-                if (canRemove) {
-                    TextButton(onClick = onRemove) {
-                        Text("删除", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
+            // 5. 最小触发时间间隔
+            Text("最小触发时间间隔", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text("${minInterval.toInt()}分钟", style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(4.dp))
-            OutlinedTextField(
-                value = item.text,
-                onValueChange = { onUpdate(item.copy(text = it)) },
-                label = { Text("文本") },
-                placeholder = { Text("触发时显示的文字") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = MaterialTheme.typography.bodyMedium
-            )
-            Spacer(Modifier.height(4.dp))
-            OutlinedTextField(
-                value = item.audioPath,
-                onValueChange = { onUpdate(item.copy(audioPath = it)) },
-                label = { Text("音频路径（可选）") },
-                placeholder = { Text("assets/xxx.wav 或 /data/.../xxx.audio") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = MaterialTheme.typography.bodySmall
-            )
+            SliderWithInput(minInterval, { minInterval = it }, 0f..360f, "分钟", steps = 71)
+            Text("同一事件在此时间内不会重复触发。0=无限制",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            Spacer(Modifier.height(32.dp))
         }
     }
 }
 
-/**
- * 通知设置开关行。
- */
+private fun buildConfig(
+    config: EventConfig, enabled: Boolean, threshold: Int, presetId: String,
+    reactions: List<ReactionItem>, notif: Boolean, headsUp: Boolean,
+    playAudio: Boolean, vibrate: Boolean, lockScreen: Boolean, minInterval: Int
+) = config.copy(
+    enabled = enabled, threshold = threshold, presetId = presetId,
+    notificationEnabled = notif, showHeadsUp = headsUp,
+    soundEnabled = playAudio, vibrationEnabled = vibrate,
+    lockScreenPublic = lockScreen, minIntervalMinutes = minInterval,
+    customText = reactions.firstOrNull()?.text ?: "",
+    customAudioPath = reactions.firstOrNull()?.audioPath ?: "",
+    reactions = reactions.filter { it.text.isNotBlank() || it.audioPath.isNotBlank() }
+)
+
 @Composable
-private fun NotificationSwitchRow(
-    label: String,
-    description: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true
+private fun SliderWithInput(
+    value: Float, onValueChange: (Float) -> Unit,
+    range: ClosedFloatingPointRange<Float>, label: String, steps: Int
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                color = if (enabled)
-                    MaterialTheme.colorScheme.onSurface
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+    var text by remember(value) { mutableStateOf(value.toInt().toString()) }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Slider(value, { v -> onValueChange(v); text = v.toInt().toString() },
+            valueRange = range, steps = steps, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(8.dp))
+        OutlinedTextField(text, { s ->
+            val f = s.filter { it.isDigit() }; text = f
+            f.toFloatOrNull()?.let { onValueChange(it.coerceIn(range.start, range.endInclusive)) }
+        }, Modifier.width(68.dp), singleLine = true, textStyle = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.width(2.dp))
+        Text(label, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun ShakeConditionPanel() {
+    var amin by remember { mutableFloatStateOf(13f) }
+    var amax by remember { mutableFloatStateOf(30f) }
+    var n by remember { mutableIntStateOf(7) }
+    var t by remember { mutableFloatStateOf(700f) }
+    Text("摇晃手机（TYPE_LINEAR_ACCELERATION）", style = MaterialTheme.typography.bodyMedium,
+        fontWeight = FontWeight.Medium)
+    Text("加速度a在窗口t内，有n次位于(amin, amax)则触发",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Spacer(Modifier.height(8.dp))
+    Text("amin: ${amin.toInt()} m/s²", style = MaterialTheme.typography.bodySmall)
+    Slider(amin, { v -> amin = v }, valueRange = 5f..30f, modifier = Modifier.fillMaxWidth())
+    Text("amax: ${amax.toInt()} m/s²", style = MaterialTheme.typography.bodySmall)
+    Slider(amax, { v -> amax = v }, valueRange = 15f..50f, modifier = Modifier.fillMaxWidth())
+    var nText by remember(n) { mutableStateOf(n.toString()) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("次数 n:", style = MaterialTheme.typography.bodySmall)
+        Slider(n.toFloat(), { v -> n = v.toInt(); nText = v.toInt().toString() },
+            valueRange = 3f..20f, steps = 16, modifier = Modifier.weight(1f))
+        OutlinedTextField(nText, { s ->
+            val f = s.filter { it.isDigit() }; nText = f
+            f.toIntOrNull()?.coerceIn(3, 20)?.let { n = it }
+        }, Modifier.width(52.dp), singleLine = true, textStyle = MaterialTheme.typography.bodySmall)
+    }
+    Text("窗口 t: ${t.toInt()}ms", style = MaterialTheme.typography.bodySmall)
+    Slider(t, { v -> t = v }, valueRange = 2000f..10000f, steps = 15, modifier = Modifier.fillMaxWidth())
+    Spacer(Modifier.height(8.dp))
+    Button(onClick = {}, Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
+        Text("摇晃测试 (${t.toInt()}ms)")
+    }
+}
+
+@Composable
+private fun FeedbackRadioRow(
+    preset: ReactionPreset, isSelected: Boolean,
+    onSelect: () -> Unit, onPreview: () -> Unit
+) {
+    Row(Modifier.fillMaxWidth()
+        .selectable(selected = isSelected, onClick = onSelect, role = Role.RadioButton)
+        .padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(selected = isSelected, onClick = null)
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(preset.text, style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+            Text(preset.name, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(
-            checked = checked && enabled,
-            onCheckedChange = { if (enabled) onCheckedChange(it) },
-            enabled = enabled
-        )
+        if (preset.audioAssetPath.isNotBlank()) TextButton(onClick = onPreview) { Text("试听") }
+    }
+}
+
+@Composable
+private fun NotifRow(label: String, desc: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            if (desc.isNotBlank()) Text(desc, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked, onChange)
     }
 }

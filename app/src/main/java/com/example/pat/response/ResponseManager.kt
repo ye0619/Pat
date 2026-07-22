@@ -6,10 +6,9 @@ import com.example.pat.audio.AudioPlayer
 import com.example.pat.data.PresetRepository
 import com.example.pat.model.AudioType
 import com.example.pat.model.EventConfig
-import com.example.pat.model.NotificationPreference
+import com.example.pat.model.NotificationConfig
 import com.example.pat.model.ReactionItem
 import com.example.pat.model.ReactionPreset
-import com.example.pat.model.toNotificationPreference
 
 /**
  * 反馈管理器 —— 协调所有反馈通道。
@@ -49,7 +48,7 @@ class ResponseManager(
      * @param notification 通知偏好
      * @return 实际使用的反馈文本，被全局锁阻止时返回 null
      */
-    fun execute(reactions: List<ReactionItem>, notification: NotificationPreference): String? {
+    fun execute(reactions: List<ReactionItem>, notification: NotificationConfig): String? {
         if (reactions.isEmpty()) {
             Log.w(TAG, "Empty reaction pool — nothing to execute")
             return null
@@ -82,7 +81,7 @@ class ResponseManager(
     /**
      * 执行单个 ReactionItem 的反馈。
      */
-    private fun executeReaction(item: ReactionItem, notification: NotificationPreference): String {
+    private fun executeReaction(item: ReactionItem, notification: NotificationConfig): String {
         val displayText = item.text
         val audioPath = item.audioPath
 
@@ -93,10 +92,10 @@ class ResponseManager(
             notificationService.show(
                 title = "Pat",
                 text = displayText,
-                enableSound = notification.sound,
+                enableSound = notification.playFeedbackAudio,
                 enableVibration = notification.vibration,
                 showHeadsUp = notification.headsUp,
-                lockScreenPublic = notification.lockScreenPublic
+                lockScreenPublic = notification.lockScreen
             )
         }
 
@@ -132,7 +131,13 @@ class ResponseManager(
 
         return execute(
             reactions = listOf(ReactionItem(text = text, audioPath = audioPath)),
-            notification = config.toNotificationPreference()
+            notification = NotificationConfig(
+                enabled = config.notificationEnabled,
+                headsUp = config.showHeadsUp,
+                playFeedbackAudio = config.soundEnabled,
+                vibration = config.vibrationEnabled,
+                lockScreen = config.lockScreenPublic
+            )
         )
     }
 

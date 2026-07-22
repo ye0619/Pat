@@ -13,270 +13,161 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.example.pat.data.EventConfigRepository
+import com.example.pat.data.EventDefinitionRepository
 import com.example.pat.data.PresetRepository
-import com.example.pat.data.UserRuleRepository
-import com.example.pat.event.AtomicEvent
 import com.example.pat.event.AtomicEventBus
 import com.example.pat.model.EventConfig
-import com.example.pat.model.UserRule
+import com.example.pat.model.EventDefinition
 import com.example.pat.service.CompanionForegroundService
 import com.example.pat.ui.EditEventScreen
 import com.example.pat.ui.EventListScreen
 import com.example.pat.ui.HomeScreen
+import com.example.pat.ui.NewEventScreen
 import com.example.pat.ui.PresetEditScreen
-import com.example.pat.ui.RuleBuilderScreen
-import com.example.pat.ui.RuleListScreen
 import com.example.pat.ui.navigation.Screen
 import com.example.pat.ui.theme.PatTheme
 import com.example.pat.util.PermissionManager
 
-/**
- * MotionPet 主 Activity —— 纯 UI 层。
- *
- * v3 改动：
- * - 测试按钮改为发射 AtomicEvent 到 AtomicEventBus
- * - 触发统计/历史从 RuleEngineV2 读取
- */
 class MainActivity : ComponentActivity() {
 
-    // ── 数据层（Activity 级别，供所有 Composable 使用） ──
     private lateinit var presetRepository: PresetRepository
     private lateinit var configRepository: EventConfigRepository
-    private lateinit var userRuleRepository: UserRuleRepository
+    private lateinit var definitionRepository: EventDefinitionRepository
 
-    // ── UI 状态 ──
     private var currentScreen by mutableStateOf<Screen>(Screen.Home)
     private var configs by mutableStateOf<List<EventConfig>>(emptyList())
-    private var userRules by mutableStateOf<List<UserRule>>(emptyList())
+    private var customDefs by mutableStateOf<List<EventDefinition>>(emptyList())
+    private var conflictDefIds by mutableStateOf<Set<String>>(emptySet())
     private var todayTriggerCount by mutableIntStateOf(0)
     private var refreshTrigger by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-
+        super.onCreate(savedInstanceState); enableEdgeToEdge()
         requestNotificationPermission()
 
-        // 初始化数据层
         presetRepository = PresetRepository(this)
         configRepository = EventConfigRepository(this, presetRepository)
-        userRuleRepository = UserRuleRepository(this)
-
-        // 启动后台服务
+        definitionRepository = EventDefinitionRepository(this)
         startCompanionService()
-
-        // 加载配置
         configs = configRepository.loadAll()
+        customDefs = definitionRepository.loadAll()
+        conflictDefIds = computeConflicts()
 
         setContent {
-            val currentTrigger = refreshTrigger
-            val screen = currentScreen
-
+            val screen = currentScreen; refreshTrigger
             PatTheme {
                 when (screen) {
                     is Screen.Home -> {
-                        val service = CompanionForegroundServiceHolder.instance
-                        HomeScreen(
-                            isServiceRunning = service != null,
-                            todayTriggerCount = if (service != null) {
-                                service.ruleEngineV2.todayTriggerCount
-                            } else todayTriggerCount,
-                            recentTriggers = if (service != null) {
-                                service.ruleEngineV2.recentTriggers
-                            } else emptyList(),
-                            onNavigateToEventList = {
-                                configs = configRepository.loadAll()
-                                userRules = userRuleRepository.loadAll()
+                        val svc = CompanionForegroundServiceHolder.instance
+                        HomeScreen(isServiceRunning = svc != null,
+                            todayTriggerCount = svc?.ruleEngineV2?.todayTriggerCount ?: todayTriggerCount,
+                            recentTriggers = svc?.ruleEngineV2?.recentTriggers ?: emptyList(),
+                            onNavigateToEventList = { reloadData(); currentScreen = Screen.EventList },
+                            onTestAtomicEvent = { AtomicEventBus.tryEmit(it) },
+                            modifier = Modifier.fillMaxSize())
+                    }
+                    is Screen.EventList -> EventListScreen(
+                        configs = configs, customDefs = customDefs,
+                        presetRepository = presetRepository, conflictDefIds = conflictDefIds,
+                        onToggleConfig = { c -> configRepository.save(c); reloadData() },
+                        onToggleDef = { d -> definitionRepository.save(d); reloadData() },
+                        onEditConfig = { c -> currentScreen = Screen.EditEvent(c.eventType) },
+                        onEditDef = { d -> currentScreen = Screen.NewEvent(d.id) },
+                        onDeleteDef = { d -> definitionRepository.delete(d.id); reloadData() },
+                        onCreateClick = { currentScreen = Screen.NewEvent(null) },
+                        onRestoreDefaults = { configRepository.restoreDefaults(); reloadData() },
+                        onBack = { currentScreen = Screen.Home },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    is Screen.EditEvent -> {
+                        val es = screen as Screen.EditEvent
+                        val cfg = configs.find { it.eventType == es.eventType }
+                        if (cfg != null) EditEventScreen(
+                            config = cfg, presetRepository = presetRepository,
+                            onCreateCustomPreset = { currentScreen = Screen.EditPreset(it) },
+                            onSave = { configRepository.save(it); configs = configRepository.loadAll(); currentScreen = Screen.EventList },
+                            onPreviewAsset = { preview(it) },
+                            onRestoreDefaults = { et -> configRepository.restoreSingle(et); configs = configRepository.loadAll() },
+                            onBack = { configs = configRepository.loadAll(); currentScreen = Screen.EventList },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    is Screen.EditPreset -> {
+                        val ep = screen as Screen.EditPreset
+                        PresetEditScreen(
+                            eventTypeName = EventConfig.displayName(ep.eventType),
+                            existingPreset = ep.presetId?.let { presetRepository.getById(it) },
+                            onSave = { pre ->
+                                presetRepository.saveCustom(pre.copy(eventType = ep.eventType))
+                                configRepository.getByEventType(ep.eventType)?.let {
+                                    configRepository.save(it.copy(presetId = pre.id))
+                                }; configs = configRepository.loadAll()
+                                currentScreen = Screen.EditEvent(ep.eventType)
+                            },
+                            onPreviewAsset = { preview(it) },
+                            onBack = { currentScreen = Screen.EditEvent(ep.eventType) },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    is Screen.NewEvent -> {
+                        val ne = screen as Screen.NewEvent
+                        NewEventScreen(
+                            existing = ne.defId?.let { definitionRepository.loadAll().find { d -> d.id == it } },
+                            onSave = { def ->
+                                definitionRepository.save(def); reloadData()
+                                CompanionForegroundServiceHolder.instance?.ruleEngineV2?.reloadRules()
                                 currentScreen = Screen.EventList
                             },
-                            onTestAtomicEvent = { event ->
-                                // v3: 直接向 AtomicEventBus 发射测试事件
-                                // 统一规则引擎将处理基础事件和自定义规则
-                                AtomicEventBus.tryEmit(event)
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    is Screen.EventList -> {
-                        EventListScreen(
-                            configs = configs,
-                            userRules = userRules,
-                            presetRepository = presetRepository,
-                            onToggleEnabled = { config ->
-                                configRepository.save(config)
-                                configs = configRepository.loadAll()
-                            },
-                            onToggleRuleEnabled = { rule ->
-                                userRuleRepository.save(rule)
-                                userRules = userRuleRepository.loadAll()
-                            },
-                            onEditClick = { eventType ->
-                                configs = configRepository.loadAll()
-                                currentScreen = Screen.EditEvent(eventType)
-                            },
-                            onEditRuleClick = { rule ->
-                                currentScreen = Screen.RuleBuilder(rule.id)
-                            },
-                            onDeleteRuleClick = { rule ->
-                                userRuleRepository.delete(rule.id)
-                                userRules = userRuleRepository.loadAll()
-                            },
-                            onCreateClick = {
-                                currentScreen = Screen.RuleBuilder(null)
-                            },
-                            onBack = { currentScreen = Screen.Home },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    is Screen.EditEvent -> {
-                        val editScreen = screen as Screen.EditEvent
-                        val config = configs.find { it.eventType == editScreen.eventType }
-                        if (config != null) {
-                            EditEventScreen(
-                                config = config,
-                                presetRepository = presetRepository,
-                                onCreateCustomPreset = { eventType ->
-                                    currentScreen = Screen.EditPreset(eventType)
-                                },
-                                onSave = { updatedConfig ->
-                                    configRepository.save(updatedConfig)
-                                    configs = configRepository.loadAll()
-                                    currentScreen = Screen.EventList
-                                },
-                                onPreviewAsset = { assetPath ->
-                                    val service = CompanionForegroundServiceHolder.instance
-                                    service?.responseManager?.stopVoice()
-                                    val ctx = this@MainActivity
-                                    if (assetPath.startsWith("/") || assetPath.startsWith(ctx.filesDir.absolutePath)) {
-                                        com.example.pat.response.VoiceService(ctx).play(assetPath)
-                                    } else {
-                                        com.example.pat.audio.AudioPlayer(ctx).playAsset(assetPath)
-                                    }
-                                },
-                                onBack = {
-                                    configs = configRepository.loadAll()
-                                    currentScreen = Screen.EventList
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
-
-                    is Screen.EditPreset -> {
-                        val editPreset = screen as Screen.EditPreset
-                        val existingPreset = editPreset.presetId?.let {
-                            presetRepository.getById(it)
-                        }
-                        val ctx = this@MainActivity
-                        PresetEditScreen(
-                            eventTypeName = EventConfig.displayName(editPreset.eventType),
-                            existingPreset = existingPreset,
-                            onSave = { preset ->
-                                presetRepository.saveCustom(
-                                    preset.copy(eventType = editPreset.eventType)
-                                )
-                                val config = configRepository.getByEventType(editPreset.eventType)
-                                if (config != null) {
-                                    configRepository.save(config.copy(presetId = preset.id))
-                                    configs = configRepository.loadAll()
-                                }
-                                currentScreen = Screen.EditEvent(editPreset.eventType)
-                            },
-                            onPreviewAsset = { assetPath ->
-                                if (assetPath.startsWith("/")) {
-                                    com.example.pat.response.VoiceService(ctx).play(assetPath)
-                                } else {
-                                    com.example.pat.audio.AudioPlayer(ctx).playAsset(assetPath)
-                                }
-                            },
-                            onBack = {
-                                currentScreen = Screen.EditEvent(editPreset.eventType)
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    is Screen.RuleList -> {
-                        RuleListScreen(
-                            rules = userRules,
-                            onToggleEnabled = { rule ->
-                                userRuleRepository.save(rule)
-                                userRules = userRuleRepository.loadAll()
-                            },
-                            onEditClick = { rule ->
-                                currentScreen = Screen.RuleBuilder(rule.id)
-                            },
-                            onDeleteClick = { rule ->
-                                userRuleRepository.delete(rule.id)
-                                userRules = userRuleRepository.loadAll()
-                            },
-                            onCreateClick = {
-                                currentScreen = Screen.RuleBuilder(null)
-                            },
-                            onBack = { currentScreen = Screen.Home },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    is Screen.RuleBuilder -> {
-                        val builderScreen = screen as Screen.RuleBuilder
-                        val existingRule = builderScreen.ruleId?.let {
-                            userRuleRepository.loadAll().find { r -> r.id == it }
-                        }
-                        RuleBuilderScreen(
-                            existingRule = existingRule,
-                            presetRepository = presetRepository,
-                            onSave = { rule ->
-                                userRuleRepository.save(rule)
-                                userRules = userRuleRepository.loadAll()
-                                CompanionForegroundServiceHolder.instance?.let { svc ->
-                                    svc.ruleEngineV2.reloadRules()
-                                }
-                                currentScreen = Screen.RuleList
-                            },
-                            onBack = { currentScreen = Screen.RuleList },
+                            onBack = { currentScreen = Screen.EventList },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
                 }
             }
         }
-
-        Log.i(TAG, "MainActivity created (v3)")
+        Log.i(TAG, "MainActivity v4 unified events created")
     }
 
-    override fun onResume() {
-        super.onResume()
+    override fun onResume() { super.onResume(); reloadData(); refreshTrigger++ }
+
+    private fun reloadData() {
         configs = configRepository.loadAll()
-        refreshTrigger++
+        customDefs = definitionRepository.loadAll()
+        conflictDefIds = computeConflicts()
+    }
+
+    private fun computeConflicts(): Set<String> {
+        val enabled = customDefs.filter { it.enabled }
+        val conflicted = mutableSetOf<String>()
+        for (i in enabled.indices) for (j in i + 1 until enabled.size) {
+            val ta = enabled[i].conditionGroups.flatMap { it.conditions }.map { it.atomicType }.toSet()
+            val tb = enabled[j].conditionGroups.flatMap { it.conditions }.map { it.atomicType }.toSet()
+            if (ta.intersect(tb).isNotEmpty()) { conflicted.add(enabled[i].id); conflicted.add(enabled[j].id) }
+        }
+        return conflicted
+    }
+
+    private fun preview(path: String) {
+        CompanionForegroundServiceHolder.instance?.responseManager?.stopVoice()
+        if (path.startsWith("/") || path.startsWith(filesDir.absolutePath))
+            com.example.pat.response.VoiceService(this).play(path)
+        else com.example.pat.audio.AudioPlayer(this).playAsset(path)
     }
 
     private fun startCompanionService() {
-        val intent = Intent(this, CompanionForegroundService::class.java)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
+        val i = Intent(this, CompanionForegroundService::class.java)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
+            startForegroundService(i) else startService(i)
     }
 
     private fun requestNotificationPermission() {
-        if (!PermissionManager.hasNotificationPermission(this)) {
+        if (!PermissionManager.hasNotificationPermission(this))
             PermissionManager.requestNotificationPermission(this)
-        }
     }
 
-    companion object {
-        private const val TAG = "MotionPet"
-    }
+    companion object { private const val TAG = "MotionPet" }
 }
 
-/**
- * 持有对运行中 Service 实例的引用。
- */
 object CompanionForegroundServiceHolder {
-    @Volatile
-    var instance: CompanionForegroundService? = null
+    @Volatile var instance: CompanionForegroundService? = null
 }

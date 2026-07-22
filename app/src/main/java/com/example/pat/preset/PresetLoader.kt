@@ -29,7 +29,8 @@ class PresetLoader(
     private val eventNameMap: Map<String, EventType> = mapOf(
         "摇晃手机" to EventType.SHAKE,
         "晃动" to EventType.SHAKE,
-        "撞击" to EventType.IMPACT,
+        "坠落" to EventType.DROP,
+        "撞击" to EventType.DROP,  // 旧名称兼容
         "长时间使用" to EventType.SCREEN_LONG_USAGE,
         "充电" to EventType.CHARGE_START,
         "低电量" to EventType.LOW_BATTERY

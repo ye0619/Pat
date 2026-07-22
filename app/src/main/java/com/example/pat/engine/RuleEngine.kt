@@ -50,7 +50,7 @@ class RuleEngine(
             is DeviceEvent.ChargeStart -> EventType.CHARGE_START
             is DeviceEvent.LowBattery -> EventType.LOW_BATTERY
             is DeviceEvent.Shake -> EventType.SHAKE
-            is DeviceEvent.Impact -> EventType.IMPACT
+            is DeviceEvent.Impact -> EventType.DROP
             is DeviceEvent.Drop,
             is DeviceEvent.ScreenWake,
             is DeviceEvent.ScreenOff,
@@ -68,7 +68,7 @@ class RuleEngine(
             EventType.LOW_BATTERY -> true  // 阈值检测已在 BatteryMonitor 层完成，此处仅确认事件类型匹配
             EventType.CHARGE_START,
             EventType.SHAKE,
-            EventType.IMPACT -> true
+            EventType.DROP -> true
         }
     }
 }

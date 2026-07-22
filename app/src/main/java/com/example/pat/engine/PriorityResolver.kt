@@ -1,8 +1,7 @@
 package com.example.pat.engine
 
 import android.util.Log
-import com.example.pat.model.ConflictStrategy
-import com.example.pat.model.NotificationPreference
+import com.example.pat.model.NotificationConfig
 import com.example.pat.model.ReactionItem
 
 /**
@@ -27,11 +26,10 @@ class PriorityResolver {
      */
     data class MatchedRule(
         val ruleId: String,
-        val priority: Int,
+        val priority: Int = 5,
         val reactions: List<ReactionItem>,
-        val notification: NotificationPreference,
-        val minIntervalMinutes: Int,
-        val conflictStrategy: ConflictStrategy = ConflictStrategy.HIGHEST_PRIORITY,
+        val notification: NotificationConfig = NotificationConfig(),
+        val minIntervalMinutes: Int = 120,
         val displayName: String = ""
     )
 
@@ -72,26 +70,10 @@ class PriorityResolver {
             return emptyList()
         }
 
-        // 3. 冲突策略
-        val strategy = eligible.first().conflictStrategy
-        val result = when (strategy) {
-            ConflictStrategy.HIGHEST_PRIORITY -> {
-                // 同优先级时优先选自定义规则（ruleId 不是 event type 格式的）
-                val selected = eligible.first()
-                Log.i(TAG, "Selected: \"${selected.displayName}\" (priority=${selected.priority})")
-                listOf(selected)
-            }
-            ConflictStrategy.EXECUTE_ALL -> {
-                Log.i(TAG, "Executing all ${eligible.size} rules (EXECUTE_ALL)")
-                eligible
-            }
-            ConflictStrategy.SEQUENTIAL -> {
-                Log.i(TAG, "Executing ${eligible.size} rules sequentially")
-                eligible
-            }
-        }
-
-        return result
+        // 3. 取最高优先级中第一个（简单优先级策略）
+        val selected = eligible.first()
+        Log.i(TAG, "Selected: \"${selected.displayName}\" (priority=${selected.priority})")
+        return listOf(selected)
     }
 
     /**
