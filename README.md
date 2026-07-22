@@ -5,7 +5,7 @@
 <h1 align="center">Pat</h1>
 
 <p align="center">
-  <em>一只住在你手机里的电子宠物 — 会抱怨、会道谢，也会喊疼。</em>
+  <em>把手机变成一只电子宠物 — 会抱怨、会道谢，也会喊疼。</em>
 </p>
 
 <p align="center">
