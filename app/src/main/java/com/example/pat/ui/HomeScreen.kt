@@ -1,9 +1,9 @@
 package com.example.pat.ui
 
-import androidx.compose.animation.animateContentSize
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.Toast
 import androidx.compose.foundation.clickable
-import android.content.Intent
-import android.provider.Settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,9 +17,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.pat.audio.AudioPlaybackState
 import com.example.pat.engine.RuleEngineV2.RecentTrigger
-import com.example.pat.event.AtomicEvent
-import com.example.pat.event.AtomicEventBus
-import com.example.pat.ui.theme.PatTheme
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -39,33 +36,92 @@ fun HomeScreen(
     todayTriggerCount: Int,
     recentTriggers: List<RecentTrigger>,
     onNavigateToEventList: () -> Unit,
-    onTestAtomicEvent: ((AtomicEvent) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    // ── 反馈弹窗 ──
+    var showFeedback by remember { mutableStateOf(false) }
+    if (showFeedback) {
+        val ctx = LocalContext.current
+        val clipboard = remember { ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager }
+        AlertDialog(
+            onDismissRequest = { showFeedback = false },
+            title = { Text("反馈") },
+            text = {
+                Column {
+                    Text("点击可复制：", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
+                    val githubUrl = "https://github.com/ye0619/Pat"
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            clipboard.setPrimaryClip(ClipData.newPlainText("GitHub", githubUrl))
+                            Toast.makeText(ctx, "已复制 GitHub 地址", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text("GitHub: $githubUrl", modifier = Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    val email = "2827135233@qq.com"
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            clipboard.setPrimaryClip(ClipData.newPlainText("邮箱", email))
+                            Toast.makeText(ctx, "已复制邮箱地址", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text("邮箱: $email", modifier = Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showFeedback = false }) { Text("关闭") } }
+        )
+    }
+
+    // ── 首次用户须知 ──
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("motionpet_ui_state", android.content.Context.MODE_PRIVATE) }
+    var showDisclaimer by remember {
+        mutableStateOf(!prefs.getBoolean("disclaimer_accepted", false))
+    }
+    if (showDisclaimer) {
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("用户须知") },
+            text = {
+                Text("本项目纯属娱乐，所有反馈内容仅供消遣。\n\n请勿将本应用用于任何严肃场合。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    prefs.edit().putBoolean("disclaimer_accepted", true).apply()
+                    showDisclaimer = false
+                }) { Text("我知道了") }
+            }
+        )
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // ── 标题 ──
-        Text(
-            text = "Pat",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // ── 运行状态 ──
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // ── 顶栏：运行状态 + 反馈按钮 ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Surface(
                 shape = MaterialTheme.shapes.small,
                 color = if (isServiceRunning)
                     MaterialTheme.colorScheme.primaryContainer
                 else
-                    MaterialTheme.colorScheme.errorContainer,
-                modifier = Modifier.padding(4.dp)
+                    MaterialTheme.colorScheme.errorContainer
             ) {
                 Text(
                     text = if (isServiceRunning) "● 正在运行" else "○ 已停止",
@@ -76,6 +132,9 @@ fun HomeScreen(
                         MaterialTheme.colorScheme.onErrorContainer,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
+            }
+            IconButton(onClick = { showFeedback = true }) {
+                Text("💬", style = MaterialTheme.typography.titleMedium)
             }
         }
 
@@ -112,10 +171,6 @@ fun HomeScreen(
             }
             Spacer(modifier = Modifier.height(8.dp))
         }
-
-        // ── 通知设置引导 ──
-        val context = LocalContext.current
-        NotificationGuideCard(context = context)
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -187,79 +242,6 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ── 测试通知（v3：使用 AtomicEvent） ──
-        if (onTestAtomicEvent != null) {
-            var testExpanded by remember { mutableStateOf(false) }
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .animateContentSize(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { testExpanded = !testExpanded },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "🧪 测试通知",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                        Text(
-                            text = if (testExpanded) "收起 ▲" else "展开 ▼",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                    }
-
-                    if (testExpanded) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "点击按钮直接向规则引擎发送测试事件，用于验证通知和反馈是否正常。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        val now = System.currentTimeMillis()
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            TestButton("长时间使用") { onTestAtomicEvent(AtomicEvent.LongUsage(now, 999)) }
-                            TestButton("充电") { onTestAtomicEvent(AtomicEvent.ChargeStart(now)) }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            TestButton("低电量") { onTestAtomicEvent(AtomicEvent.BatteryLevel(now, 15)) }
-                            TestButton("摇晃") { onTestAtomicEvent(AtomicEvent.Shake(now)) }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            TestButton("撞击") { onTestAtomicEvent(AtomicEvent.Impact(now, 30f)) }
-                            TestButton("点击") { onTestAtomicEvent(AtomicEvent.Click(now)) }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-
         // ── 事件管理入口 ──
         Button(
             onClick = onNavigateToEventList,
@@ -304,83 +286,6 @@ private fun RecentTriggerRow(trigger: RecentTrigger) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-    }
-}
-
-/**
- * 通知设置引导卡片。
- */
-@Composable
-private fun NotificationGuideCard(context: android.content.Context) {
-    val prefs = remember { context.getSharedPreferences("motionpet_ui_state", android.content.Context.MODE_PRIVATE) }
-    var visible by remember {
-        mutableStateOf(!prefs.getBoolean("notification_guide_dismissed", false))
-    }
-
-    if (!visible) return
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-        )
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "💡 通知提示",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    modifier = Modifier.weight(1f)
-                )
-                TextButton(onClick = {
-                    visible = false
-                    prefs.edit().putBoolean("notification_guide_dismissed", true).apply()
-                }) {
-                    Text("✕", color = MaterialTheme.colorScheme.onTertiaryContainer)
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "如果没有弹窗横幅，请检查：\n" +
-                        "1. 系统设置 → 通知 → Pat → 开启\"悬浮通知\"\n" +
-                        "2. 关闭\"设为静音\"或\"不重要通知\"",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onTertiaryContainer
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            OutlinedButton(
-                onClick = {
-                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                    }
-                    context.startActivity(intent)
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                )
-            ) {
-                Text("打开系统通知设置 →", style = MaterialTheme.typography.labelMedium)
-            }
-        }
-    }
-}
-
-@Composable
-private fun RowScope.TestButton(label: String, onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = Modifier.weight(1f),
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-        )
-    ) {
-        Text(text = label, style = MaterialTheme.typography.labelMedium)
     }
 }
 

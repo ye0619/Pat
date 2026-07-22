@@ -17,7 +17,6 @@ import kotlinx.coroutines.delay
 import com.example.pat.data.EventConfigRepository
 import com.example.pat.data.EventDefinitionRepository
 import com.example.pat.data.PresetRepository
-import com.example.pat.event.AtomicEventBus
 import com.example.pat.model.EventConfig
 import com.example.pat.model.EventDefinition
 import com.example.pat.service.CompanionForegroundService
@@ -84,7 +83,6 @@ class MainActivity : ComponentActivity() {
                             todayTriggerCount = svc?.ruleEngineV2?.todayTriggerCount ?: todayTriggerCount,
                             recentTriggers = svc?.ruleEngineV2?.recentTriggers ?: emptyList(),
                             onNavigateToEventList = { reloadData(); currentScreen = Screen.EventList },
-                            onTestAtomicEvent = { AtomicEventBus.tryEmit(it) },
                             modifier = Modifier.fillMaxSize())
                     }
                     is Screen.EventList -> EventListScreen(
