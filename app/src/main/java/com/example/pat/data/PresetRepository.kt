@@ -36,8 +36,19 @@ class PresetRepository(
     /** 内置预设（延迟加载） */
     private val builtInPresets: List<ReactionPreset> by lazy { loader.load() }
 
-    /** 自定义预设（延迟加载） */
-    private val customPresets: List<ReactionPreset> by lazy { loadCustomPresets() }
+    /** 自定义预设缓存（null = 未加载）。save/delete 后自动刷新 */
+    @Volatile
+    private var _customPresets: List<ReactionPreset>? = null
+
+    private val customPresets: List<ReactionPreset>
+        get() {
+            var cached = _customPresets
+            if (cached == null) {
+                cached = loadCustomPresets()
+                _customPresets = cached
+            }
+            return cached
+        }
 
     // ══════════════════════════════════════════════════════════════
     // 查询 API
@@ -96,7 +107,7 @@ class PresetRepository(
      * 保存自定义预设（新建或更新）。
      */
     fun saveCustom(preset: ReactionPreset) {
-        val list = customPresets.toMutableList()
+        val list = loadCustomPresets().toMutableList()
         val index = list.indexOfFirst { it.id == preset.id }
         if (index >= 0) {
             list[index] = preset
@@ -104,6 +115,7 @@ class PresetRepository(
             list.add(preset.copy(id = if (preset.id.isBlank()) UUID.randomUUID().toString() else preset.id))
         }
         persistCustomPresets(list)
+        _customPresets = list // 刷新缓存
         Log.i(TAG, "Custom preset saved: id=${preset.id} name=${preset.name}")
     }
 
@@ -111,8 +123,9 @@ class PresetRepository(
      * 删除自定义预设。
      */
     fun deleteCustom(presetId: String) {
-        val list = customPresets.filter { it.id != presetId }
+        val list = loadCustomPresets().filter { it.id != presetId }
         persistCustomPresets(list)
+        _customPresets = list // 刷新缓存
         Log.i(TAG, "Custom preset deleted: $presetId")
     }
 

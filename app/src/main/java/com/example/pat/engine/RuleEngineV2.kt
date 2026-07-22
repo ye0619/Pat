@@ -16,6 +16,8 @@ import com.example.pat.model.NotificationConfig
 import com.example.pat.model.ReactionItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -47,6 +49,10 @@ class RuleEngineV2(
 
     private val _recentTriggers = mutableListOf<RecentTrigger>()
     val recentTriggers: List<RecentTrigger> get() = _recentTriggers.toList()
+
+    /** UI 刷新触发器 —— 每次 todayTriggerCount/recentTriggers 变化时自增 */
+    private val _uiRefresh = MutableStateFlow(0L)
+    val uiRefresh: StateFlow<Long> = _uiRefresh
 
     data class RecentTrigger(
         val displayName: String,
@@ -92,6 +98,7 @@ class RuleEngineV2(
                 timestamp = now
             ))
             if (_recentTriggers.size > 20) _recentTriggers.removeAt(_recentTriggers.lastIndex)
+            _uiRefresh.value = now // 通知 UI 刷新
             onRuleMatched?.invoke(rule)
         }
         lastMatchedRules = toExecute

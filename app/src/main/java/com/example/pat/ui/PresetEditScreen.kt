@@ -46,7 +46,6 @@ fun PresetEditScreen(
     val context = LocalContext.current
 
     // ── 编辑状态 ──
-    var name by remember { mutableStateOf(existingPreset?.name ?: "") }
     var text by remember { mutableStateOf(existingPreset?.text ?: "") }
     var audioPath by remember { mutableStateOf(existingPreset?.audioAssetPath ?: "") }
     var audioFileName by remember { mutableStateOf(extractFileName(existingPreset?.audioAssetPath ?: "")) }
@@ -91,19 +90,6 @@ fun PresetEditScreen(
             text = "事件类型: $eventTypeName",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // ── 预设名称 ──
-        Text("预设名称", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("例: 我的休息提醒") },
-            singleLine = true
         )
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -165,7 +151,7 @@ fun PresetEditScreen(
                 onSave(
                     ReactionPreset(
                         id = existingPreset?.id ?: UUID.randomUUID().toString(),
-                        name = name.ifBlank { ReactionPreset.nameFromText(text.ifBlank { "自定义预设" }) },
+                        name = ReactionPreset.nameFromText(text.ifBlank { "自定义反馈" }),
                         text = text.ifBlank { "自定义反馈" },
                         audioAssetPath = audioPath,
                         audioType = AudioType.CUSTOM,

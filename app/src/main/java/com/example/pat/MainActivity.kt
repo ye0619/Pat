@@ -7,11 +7,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.delay
 import com.example.pat.data.EventConfigRepository
 import com.example.pat.data.EventDefinitionRepository
 import com.example.pat.data.PresetRepository
@@ -56,6 +58,23 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val screen = currentScreen; refreshTrigger
+
+            // 监听服务端数据变化，实时刷新 UI
+            LaunchedEffect(Unit) {
+                while (true) {
+                    val svc = CompanionForegroundServiceHolder.instance
+                    if (svc != null) {
+                        try {
+                            svc.ruleEngineV2.uiRefresh.collect {
+                                todayTriggerCount = svc.ruleEngineV2.todayTriggerCount
+                                refreshTrigger++
+                            }
+                        } catch (_: Exception) { }
+                    }
+                    delay(300)
+                }
+            }
+
             PatTheme {
                 ClickTracker {
                 when (screen) {
@@ -90,6 +109,16 @@ class MainActivity : ComponentActivity() {
                             onSave = { configRepository.save(it); configs = configRepository.loadAll(); currentScreen = Screen.EventList },
                             onPreviewAsset = { preview(it) },
                             onRestoreDefaults = { et -> configRepository.restoreSingle(et); configs = configRepository.loadAll() },
+                            onDeletePreset = { presetId ->
+                                presetRepository.deleteCustom(presetId)
+                                // 如果当前事件引用了被删除的预设，回退到第一个可用预设
+                                val current = configRepository.getByEventType(es.eventType)
+                                if (current != null && current.presetId == presetId) {
+                                    val fallback = presetRepository.getByEventType(es.eventType).firstOrNull()
+                                    configRepository.save(current.copy(presetId = fallback?.id ?: ""))
+                                }
+                                configs = configRepository.loadAll()
+                            },
                             onBack = { configs = configRepository.loadAll(); currentScreen = Screen.EventList },
                             modifier = Modifier.fillMaxSize()
                         )

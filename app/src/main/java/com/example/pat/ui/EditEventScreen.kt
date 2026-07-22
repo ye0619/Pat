@@ -30,6 +30,7 @@ fun EditEventScreen(
     onSave: (EventConfig) -> Unit,
     onPreviewAsset: (String) -> Unit,
     onRestoreDefaults: (EventType) -> Unit,
+    onDeletePreset: (String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -47,8 +48,9 @@ fun EditEventScreen(
     var vibrate by remember { mutableStateOf(config.vibrationEnabled) }
     var lockScreen by remember { mutableStateOf(config.lockScreenPublic) }
     var minInterval by remember { mutableFloatStateOf(config.minIntervalMinutes.toFloat()) }
+    var presetVersion by remember { mutableIntStateOf(0) }
 
-    val availablePresets = remember { presetRepository.getByEventType(config.eventType) }
+    val availablePresets = remember(presetVersion) { presetRepository.getByEventType(config.eventType) }
     val selectedPreset = remember(selectedPresetId) { availablePresets.find { it.id == selectedPresetId } }
 
     val showSlider = config.eventType == EventType.SCREEN_LONG_USAGE
@@ -134,10 +136,26 @@ fun EditEventScreen(
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.selectableGroup()) {
                         availablePresets.forEach { preset ->
+                            val canDelete = preset.audioType != com.example.pat.model.AudioType.PRESET
                             FeedbackRadioRow(preset, preset.id == selectedPresetId, {
                                 selectedPresetId = preset.id
                                 reactions = mutableListOf(ReactionItem(text = preset.text, audioPath = preset.audioAssetPath))
-                            }, { if (preset.audioAssetPath.isNotBlank()) onPreviewAsset(preset.audioAssetPath) })
+                            }, { if (preset.audioAssetPath.isNotBlank()) onPreviewAsset(preset.audioAssetPath) },
+                                isBuiltIn = !canDelete,
+                                onDelete = if (canDelete) ({
+                                    if (preset.id == selectedPresetId) {
+                                        // 删除的是当前选中项，切换到其他可用预设
+                                        val others = availablePresets.filter { it.id != preset.id }
+                                        selectedPresetId = others.firstOrNull()?.id ?: ""
+                                        reactions = mutableListOf(ReactionItem(
+                                            text = others.firstOrNull()?.text ?: "",
+                                            audioPath = others.firstOrNull()?.audioAssetPath ?: ""
+                                        ))
+                                    }
+                                    onDeletePreset(preset.id)
+                                    presetVersion++
+                                }) else null
+                            )
                         }
                     }
                 }
@@ -243,7 +261,8 @@ private fun ShakeConditionPanel() {
 @Composable
 private fun FeedbackRadioRow(
     preset: ReactionPreset, isSelected: Boolean,
-    onSelect: () -> Unit, onPreview: () -> Unit
+    onSelect: () -> Unit, onPreview: () -> Unit,
+    isBuiltIn: Boolean = false, onDelete: (() -> Unit)? = null
 ) {
     Row(Modifier.fillMaxWidth()
         .selectable(selected = isSelected, onClick = onSelect, role = Role.RadioButton)
@@ -253,10 +272,26 @@ private fun FeedbackRadioRow(
         Column(Modifier.weight(1f)) {
             Text(preset.text, style = MaterialTheme.typography.bodyLarge,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
-            Text(preset.name, style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(preset.name, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (isBuiltIn) {
+                    Spacer(Modifier.width(6.dp))
+                    Surface(shape = MaterialTheme.shapes.extraSmall,
+                        color = MaterialTheme.colorScheme.primaryContainer) {
+                        Text("预设", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                    }
+                }
+            }
         }
         if (preset.audioAssetPath.isNotBlank()) TextButton(onClick = onPreview) { Text("试听") }
+        if (onDelete != null) {
+            TextButton(onClick = onDelete,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) { Text("删除") }
+        }
     }
 }
 
